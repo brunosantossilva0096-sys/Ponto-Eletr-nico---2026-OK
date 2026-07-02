@@ -1,0 +1,6 @@
+{
+  "name": "Ponto Eletrônico",
+  "description": "Sistema de registro de ponto eletrônico online com validação por geolocalização e confirmação de identidade.",
+  "requestFramePermissions": ["geolocation", "camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
