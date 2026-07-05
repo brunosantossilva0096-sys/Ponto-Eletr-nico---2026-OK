@@ -341,6 +341,48 @@ export const AdminPanel = ({ onLogout }: { onLogout: () => void }) => {
                 <label className="block text-xs font-semibold text-industrial-muted mb-1">Raio GPS (m)</label>
                 <input type="number" value={radius} onChange={e => setRadius(Number(e.target.value))} className="w-full bg-industrial-bg border border-industrial-border rounded-lg p-2 text-sm focus:outline-none focus:border-cyber-emerald transition-colors" />
               </div>
+              <div>
+                <label className="block text-xs font-semibold text-industrial-muted mb-1">Latitude</label>
+                <input 
+                  type="number" 
+                  step="any"
+                  value={position ? position[0] : ''} 
+                  onChange={e => setPosition(e.target.value ? [Number(e.target.value), position ? position[1] : 0] : null)} 
+                  className="w-full bg-industrial-bg border border-industrial-border rounded-lg p-2 text-sm focus:outline-none focus:border-cyber-emerald transition-colors" 
+                  placeholder="Ex: -23.5505"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-industrial-muted mb-1">Longitude</label>
+                <input 
+                  type="number" 
+                  step="any"
+                  value={position ? position[1] : ''} 
+                  onChange={e => setPosition(e.target.value ? [position ? position[0] : 0, Number(e.target.value)] : null)} 
+                  className="w-full bg-industrial-bg border border-industrial-border rounded-lg p-2 text-sm focus:outline-none focus:border-cyber-emerald transition-colors" 
+                  placeholder="Ex: -46.6333"
+                />
+              </div>
+              <div className="col-span-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.geolocation.getCurrentPosition(
+                      async (pos) => {
+                        const lat = pos.coords.latitude;
+                        const lon = pos.coords.longitude;
+                        setPosition([lat, lon]);
+                        alert(`Geolocalização do navegador obtida com sucesso!\nLat: ${lat}\nLng: ${lon}`);
+                      },
+                      () => alert('Erro ao obter localização. Verifique as permissões de geolocalização do seu navegador.'),
+                      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+                    );
+                  }}
+                  className="bg-white border border-industrial-border text-industrial-text hover:border-cyber-emerald hover:text-cyber-emerald px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors flex items-center justify-center gap-2 w-full"
+                >
+                  <Navigation size={16} className="text-cyber-emerald" /> Usar Geolocalização do Meu Navegador (HTML5)
+                </button>
+              </div>
             </div>
 
             <div className="mb-6 p-4 rounded-xl border border-industrial-border bg-industrial-bg/50">
