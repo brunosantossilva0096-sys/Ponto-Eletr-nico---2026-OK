@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabaseClient';
 import { Employee } from '../types';
-import { MapPin, Fingerprint, KeyRound, AlertTriangle, ArrowLeft, CheckCircle2 } from 'lucide-react';
+import { MapPin, Fingerprint, KeyRound, AlertTriangle, ArrowLeft, CheckCircle2, FileText } from 'lucide-react';
 import { motion } from 'motion/react';
+import { EmployeeReports } from './EmployeeReports';
 
 const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
   const R = 6371e3; // Raio da terra em metros
@@ -28,6 +29,10 @@ export const PunchClock = ({ employee, onBack }: { employee: Employee, onBack: (
   
   const [usePin, setUsePin] = useState(employee.auth_method === 'pin');
   const [pinInput, setPinInput] = useState('');
+  
+  const [showReports, setShowReports] = useState(false);
+  const [viewReportsAuth, setViewReportsAuth] = useState(false);
+  const [reportsPinInput, setReportsPinInput] = useState('');
 
   // Atualizar relógio
   useEffect(() => {
@@ -165,6 +170,21 @@ export const PunchClock = ({ employee, onBack }: { employee: Employee, onBack: (
     }
   };
 
+  const handleReportsPinAuth = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (reportsPinInput === employee.pin) {
+      setViewReportsAuth(false);
+      setReportsPinInput('');
+      setShowReports(true);
+    } else {
+      alert('Senha incorreta.');
+    }
+  };
+
+  if (showReports) {
+    return <EmployeeReports employee={employee} onBack={() => setShowReports(false)} />;
+  }
+
   return (
     <div className="min-h-screen bg-industrial-bg flex flex-col items-center justify-center p-4">
       <button onClick={onBack} className="absolute top-6 left-6 text-industrial-muted hover:text-industrial-text flex items-center gap-2">
@@ -242,10 +262,44 @@ export const PunchClock = ({ employee, onBack }: { employee: Employee, onBack: (
                   <KeyRound size={16} /> {usePin ? 'Usar Digital' : 'Digital não funcionou? Usar Senha'}
                 </button>
               )}
+
+              <button 
+                onClick={() => setViewReportsAuth(true)} 
+                className="mt-4 text-xs font-semibold text-industrial-muted hover:text-cyber-emerald flex items-center justify-center gap-1.5 w-full pt-4 border-t border-industrial-border/50"
+              >
+                <FileText size={14} /> Ver Meu Espelho de Ponto (PDF)
+              </button>
             </div>
           )}
         </div>
       </motion.div>
+
+      {viewReportsAuth && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-[1000] animate-fade-in">
+          <div className="bg-white rounded-3xl shadow-xl w-full max-w-sm overflow-hidden p-6 text-center space-y-4">
+            <h3 className="font-bold text-lg flex items-center justify-center gap-2 text-industrial-text"><KeyRound size={20} className="text-cyber-emerald" /> Confirmar Senha</h3>
+            <p className="text-xs text-industrial-muted">Para acessar seu espelho de ponto, digite sua senha de acesso.</p>
+            <form onSubmit={handleReportsPinAuth} className="space-y-4">
+              <input 
+                type="password" 
+                required
+                value={reportsPinInput} 
+                onChange={e => setReportsPinInput(e.target.value)} 
+                placeholder="Senha de Acesso" 
+                className="w-full bg-industrial-bg border border-industrial-border rounded-xl p-3 text-center tracking-[0.25em] text-lg focus:border-cyber-emerald focus:outline-none"
+              />
+              <div className="flex gap-2">
+                <button type="button" onClick={() => { setViewReportsAuth(false); setReportsPinInput(''); }} className="flex-1 py-2.5 rounded-xl border border-industrial-border text-sm font-semibold hover:bg-industrial-bg transition-colors">
+                  Cancelar
+                </button>
+                <button type="submit" className="flex-1 py-2.5 rounded-xl bg-cyber-emerald text-white text-sm font-bold hover:bg-opacity-90 transition-colors">
+                  Acessar
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

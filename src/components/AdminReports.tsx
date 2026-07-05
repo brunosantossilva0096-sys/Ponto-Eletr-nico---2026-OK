@@ -1,11 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabaseClient';
 import { TimeLog, Employee } from '../types';
-import { Download, Search, Clock, Pencil, Trash2, X, AlertTriangle } from 'lucide-react';
+import { Download, Search, Clock, Pencil, Trash2, X, AlertTriangle, FileText } from 'lucide-react';
+import { jsPDF } from 'jspdf';
 
 export const AdminReports = () => {
   const [logs, setLogs] = useState<(TimeLog & { employees: Employee })[]>([]);
   const [search, setSearch] = useState('');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
   const [editingLog, setEditingLog] = useState<TimeLog | null>(null);
   const [editDate, setEditDate] = useState('');
   const [editTime, setEditTime] = useState('');
@@ -24,9 +27,24 @@ export const AdminReports = () => {
     fetchLogs();
   }, []);
 
+  const filtered = logs.filter(l => {
+    const matchesSearch = 
+      l.employees?.name?.toLowerCase().includes(search.toLowerCase()) || 
+      l.employees?.cpf?.includes(search) ||
+      l.employees?.companies?.name?.toLowerCase().includes(search.toLowerCase());
+
+    if (!matchesSearch) return false;
+
+    const logDate = l.timestamp.split('T')[0];
+    if (startDate && logDate < startDate) return false;
+    if (endDate && logDate > endDate) return false;
+
+    return true;
+  });
+
   const handleExportCSV = () => {
     let csv = 'Data,Hora,Funcionario,Empresa,CPF,Metodo,Distancia(m),Lat,Lng,Hash,Editado,MotivoEdicao\n';
-    logs.forEach(log => {
+    filtered.forEach(log => {
       const d = new Date(log.timestamp);
       const dateStr = d.toLocaleDateString('pt-BR');
       const timeStr = d.toLocaleTimeString('pt-BR');
@@ -38,6 +56,69 @@ export const AdminReports = () => {
     a.href = url;
     a.download = `relatorio_ponto_${Date.now()}.csv`;
     a.click();
+  };
+
+  const handleExportPDF = () => {
+    const doc = new jsPDF();
+    
+    doc.setFont('Helvetica', 'bold');
+    doc.setFontSize(16);
+    doc.text('Relatório de Ponto Eletrônico - Ponto Digital', 14, 20);
+    
+    doc.setFont('Helvetica', 'normal');
+    doc.setFontSize(10);
+    doc.text(`Gerado em: ${new Date().toLocaleString('pt-BR')}`, 14, 27);
+    if (startDate || endDate) {
+      doc.text(`Período: ${startDate ? new Date(startDate + 'T00:00:00').toLocaleDateString('pt-BR') : 'Início'} até ${endDate ? new Date(endDate + 'T00:00:00').toLocaleDateString('pt-BR') : 'Fim'}`, 14, 32);
+    }
+    
+    doc.line(14, 35, 196, 35);
+    
+    let y = 43;
+    
+    doc.setFont('Helvetica', 'bold');
+    doc.text('Data/Hora', 14, y);
+    doc.text('Funcionário', 55, y);
+    doc.text('Empresa', 110, y);
+    doc.text('Método', 150, y);
+    doc.text('GPS/Info', 175, y);
+    
+    doc.line(14, y + 2, 196, y + 2);
+    y += 8;
+    
+    doc.setFont('Helvetica', 'normal');
+    filtered.forEach((log) => {
+      if (y > 280) {
+        doc.addPage();
+        y = 20;
+        doc.setFont('Helvetica', 'bold');
+        doc.text('Data/Hora', 14, y);
+        doc.text('Funcionário', 55, y);
+        doc.text('Empresa', 110, y);
+        doc.text('Método', 150, y);
+        doc.text('GPS/Info', 175, y);
+        doc.line(14, y + 2, 196, y + 2);
+        y += 8;
+        doc.setFont('Helvetica', 'normal');
+      }
+      
+      const dateVal = new Date(log.timestamp);
+      const dateTimeStr = `${dateVal.toLocaleDateString('pt-BR')} ${dateVal.toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'})}`;
+      const nameStr = log.employees?.name || '';
+      const compStr = log.employees?.companies?.name || '';
+      const methodStr = log.verification_method || '';
+      const gpsStr = log.distance ? `${Math.round(log.distance)}m` : 'Sem GPS';
+      
+      doc.text(dateTimeStr, 14, y);
+      doc.text(nameStr.substring(0, 24), 55, y);
+      doc.text(compStr.substring(0, 18), 110, y);
+      doc.text(methodStr.substring(0, 12), 150, y);
+      doc.text(gpsStr, 175, y);
+      
+      y += 6;
+    });
+    
+    doc.save(`relatorio_pontos_${Date.now()}.pdf`);
   };
 
   const handleDelete = async (id: string) => {
@@ -62,13 +143,12 @@ export const AdminReports = () => {
       return;
     }
 
-    // Combine date and time assuming local timezone for simplicity
     const newTimestamp = new Date(`${editDate}T${editTime}:00`).toISOString();
 
     await supabase.from('time_logs').update({
       timestamp: newTimestamp,
       is_edited: true,
-      original_timestamp: editingLog.original_timestamp || editingLog.timestamp, // Guarda o primeiro apenas
+      original_timestamp: editingLog.original_timestamp || editingLog.timestamp,
       edit_reason: editReason
     }).eq('id', editingLog.id);
 
@@ -76,30 +156,49 @@ export const AdminReports = () => {
     fetchLogs();
   };
 
-  const filtered = logs.filter(l => 
-    l.employees?.name?.toLowerCase().includes(search.toLowerCase()) || 
-    l.employees?.cpf?.includes(search) ||
-    l.employees?.companies?.name?.toLowerCase().includes(search.toLowerCase())
-  );
-
   return (
     <div className="bg-white rounded-2xl shadow-sm border border-industrial-border p-6 h-[600px] flex flex-col relative">
       <div className="flex justify-between items-center mb-6">
         <h2 className="font-bold text-lg flex items-center gap-2"><Clock size={18} className="text-cyber-emerald"/> Relatório de Batidas</h2>
-        <button onClick={handleExportCSV} className="bg-industrial-text text-white px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2 hover:bg-opacity-90">
-          <Download size={16} /> Exportar CSV
-        </button>
+        <div className="flex gap-2">
+          <button onClick={handleExportCSV} className="bg-white border border-industrial-border text-industrial-text px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2 hover:bg-industrial-bg transition-colors">
+            <Download size={16} /> Exportar CSV
+          </button>
+          <button onClick={handleExportPDF} className="bg-industrial-text text-white px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2 hover:bg-opacity-90 transition-all">
+            <FileText size={16} /> Exportar PDF
+          </button>
+        </div>
       </div>
 
-      <div className="relative mb-4">
-        <Search className="absolute left-3 top-2.5 text-industrial-muted" size={16} />
-        <input 
-          type="text" 
-          placeholder="Buscar funcionário..." 
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          className="w-full pl-10 pr-4 py-2 bg-industrial-bg border border-industrial-border rounded-lg text-sm focus:border-cyber-emerald focus:outline-none"
-        />
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+        <div className="relative">
+          <Search className="absolute left-3 top-2.5 text-industrial-muted" size={16} />
+          <input 
+            type="text" 
+            placeholder="Buscar funcionário, CPF..." 
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            className="w-full pl-10 pr-4 py-2 bg-industrial-bg border border-industrial-border rounded-lg text-sm focus:border-cyber-emerald focus:outline-none"
+          />
+        </div>
+        <div>
+          <input 
+            type="date" 
+            value={startDate}
+            onChange={e => setStartDate(e.target.value)}
+            className="w-full px-3 py-2 bg-industrial-bg border border-industrial-border rounded-lg text-sm focus:border-cyber-emerald focus:outline-none"
+            title="Data Inicial"
+          />
+        </div>
+        <div>
+          <input 
+            type="date" 
+            value={endDate}
+            onChange={e => setEndDate(e.target.value)}
+            className="w-full px-3 py-2 bg-industrial-bg border border-industrial-border rounded-lg text-sm focus:border-cyber-emerald focus:outline-none"
+            title="Data Final"
+          />
+        </div>
       </div>
 
       <div className="flex-1 overflow-auto border border-industrial-border rounded-xl">
