@@ -1,0 +1,238 @@
+import React, { useState, useEffect } from 'react';
+import { supabase } from '../supabaseClient';
+import { Employee } from '../types';
+import { MapPin, Fingerprint, KeyRound, AlertTriangle, ArrowLeft, CheckCircle2 } from 'lucide-react';
+import { motion } from 'motion/react';
+
+const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
+  const R = 6371e3; // Raio da terra em metros
+  const f1 = (lat1 * Math.PI) / 180;
+  const f2 = (lat2 * Math.PI) / 180;
+  const df = ((lat2 - lat1) * Math.PI) / 180;
+  const dl = ((lon2 - lon1) * Math.PI) / 180;
+
+  const a = Math.sin(df / 2) * Math.sin(df / 2) +
+            Math.cos(f1) * Math.cos(f2) *
+            Math.sin(dl / 2) * Math.sin(dl / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+  return R * c; 
+};
+
+export const PunchClock = ({ employee, onBack }: { employee: Employee, onBack: () => void }) => {
+  const [time, setTime] = useState(new Date());
+  const [status, setStatus] = useState<'idle' | 'locating' | 'ready' | 'verifying' | 'success' | 'error'>('locating');
+  const [message, setMessage] = useState('Obtendo localização...');
+  const [currentCoords, setCurrentCoords] = useState<{lat: number, lng: number} | null>(null);
+  
+  const [usePin, setUsePin] = useState(false);
+  const [pinInput, setPinInput] = useState('');
+
+  // Atualizar relógio
+  useEffect(() => {
+    const timer = setInterval(() => setTime(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Pegar GPS
+  useEffect(() => {
+    if (status !== 'locating') return;
+    
+    if (!employee.allowed_lat || !employee.allowed_lng) {
+      // Se o admin não configurou, permite de qualquer lugar (fallback)
+      setStatus('ready');
+      setMessage('Coloque o dedo no leitor para registrar o ponto.');
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const accuracy = pos.coords.accuracy;
+        const dist = calculateDistance(
+          pos.coords.latitude, pos.coords.longitude,
+          employee.allowed_lat!, employee.allowed_lng!
+        );
+        setCurrentCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        
+        if (dist <= employee.allowed_radius) {
+          setStatus('ready');
+          setMessage('Localização confirmada! Coloque o dedo no leitor.');
+        } else if (accuracy > 2000 && dist <= accuracy) {
+          // Fallback para computadores Desktop onde o GPS é baseado em IP (margem de erro gigante)
+          setStatus('ready');
+          setMessage(`Localização imprecisa via IP (margem de erro: ${Math.round(accuracy)}m). Aceito provisoriamente. Coloque o dedo no leitor.`);
+        } else {
+          setStatus('error');
+          setMessage(`Você está a ${Math.round(dist)}m do local de trabalho.\n(Máximo permitido: ${employee.allowed_radius}m)\nMargem de erro do seu GPS: ${Math.round(accuracy)}m.`);
+        }
+      },
+      (err) => {
+        setStatus('error');
+        setMessage('Falha ao obter GPS. Permissão negada.');
+      },
+      { enableHighAccuracy: true }
+    );
+  }, [status, employee]);
+
+  const recordTimeLog = async (method: string) => {
+    setStatus('verifying');
+    const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`${employee.id}-${Date.now()}`));
+    const hashStr = Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
+
+    const log = {
+      id: crypto.randomUUID(),
+      employee_id: employee.id,
+      timestamp: new Date().toISOString(),
+      type: 'Batida',
+      distance: currentCoords && employee.allowed_lat ? calculateDistance(currentCoords.lat, currentCoords.lng, employee.allowed_lat, employee.allowed_lng) : null,
+      latitude: currentCoords?.lat || null,
+      longitude: currentCoords?.lng || null,
+      verification_method: method,
+      hash_assinatura: hashStr,
+      pis_pasep_trabalhador: employee.pis,
+      cpf_trabalhador: employee.cpf
+    };
+
+    const { error } = await supabase.from('time_logs').insert([log]);
+    
+    if (error) {
+      setStatus('error');
+      setMessage('Erro ao salvar no servidor.');
+    } else {
+      setStatus('success');
+      setMessage('Ponto registrado com sucesso!');
+      setTimeout(() => onBack(), 3000);
+    }
+  };
+
+  const handleFingerprint = async () => {
+    if (status !== 'ready') return;
+    setStatus('verifying');
+    setMessage('Escaneando digital...');
+    
+    try {
+      // 1. Pegar digital cadastrada
+      const { data: dbData } = await supabase.from('biometric_templates').select('template').eq('employee_id', employee.id).maybeSingle();
+      if (!dbData || !dbData.template) {
+        throw new Error("Sua digital não está cadastrada no sistema. Use o PIN.");
+      }
+
+      // 2. Capturar digital do sensor local
+      const capRes = await fetch('http://localhost:8000/SGIFPCapture', { method: 'POST' });
+      if (!capRes.ok) throw new Error("Leitor não conectado ou falhou.");
+      const capData = await capRes.json();
+      if (!capData.success) throw new Error("Falha ao ler o dedo.");
+
+      // 3. Comparar
+      const matchRes = await fetch('http://localhost:8000/SGIFPMatch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ template1: capData.template, template2: dbData.template })
+      });
+      const matchData = await matchRes.json();
+      
+      if (matchData.matched) {
+        await recordTimeLog('Biometria SecuGen');
+      } else {
+        setStatus('error');
+        setMessage('Digital não confere.');
+      }
+    } catch (e: any) {
+      setStatus('error');
+      setMessage(e.message || "Erro de comunicação com o leitor.");
+    }
+  };
+
+  const handlePinAuth = async () => {
+    if (pinInput === employee.pin) {
+      await recordTimeLog('Senha/PIN');
+    } else {
+      setStatus('error');
+      setMessage('Senha incorreta.');
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-industrial-bg flex flex-col items-center justify-center p-4">
+      <button onClick={onBack} className="absolute top-6 left-6 text-industrial-muted hover:text-industrial-text flex items-center gap-2">
+        <ArrowLeft size={16} /> Cancelar
+      </button>
+
+      <motion.div 
+        initial={{ scale: 0.95, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        className="w-full max-w-md bg-white rounded-3xl shadow-xl overflow-hidden border border-industrial-border"
+      >
+        <div className="p-8 text-center bg-industrial-bg border-b border-industrial-border">
+          <p className="text-industrial-muted font-semibold uppercase tracking-wider text-xs mb-2">Olá, {employee.name}</p>
+          <div className="text-5xl font-bold font-mono tracking-tighter text-industrial-text">
+            {time.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+          </div>
+          <p className="text-sm text-industrial-muted mt-2">{time.toLocaleDateString('pt-BR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
+        </div>
+
+        <div className="p-8 flex flex-col items-center justify-center min-h-[250px]">
+          {status === 'locating' && (
+            <div className="animate-pulse flex flex-col items-center text-cyber-emerald">
+              <MapPin size={48} className="mb-4" />
+              <p>{message}</p>
+            </div>
+          )}
+
+          {status === 'success' && (
+            <div className="flex flex-col items-center text-cyber-emerald">
+              <CheckCircle2 size={64} className="mb-4" />
+              <p className="font-bold text-lg">{message}</p>
+            </div>
+          )}
+
+          {(status === 'error' || status === 'ready' || status === 'verifying') && (
+            <div className="w-full text-center">
+              {status === 'error' && (
+                <div className="bg-red-50 text-red-600 p-4 rounded-xl mb-6 flex flex-col items-center">
+                  <AlertTriangle size={32} className="mb-2" />
+                  <p className="font-semibold whitespace-pre-line">{message}</p>
+                  <button onClick={() => setStatus('locating')} className="mt-4 underline text-sm">Tentar Novamente GPS</button>
+                </div>
+              )}
+
+              {status !== 'error' && status !== 'success' && (
+                <p className="text-industrial-muted mb-6">{message}</p>
+              )}
+
+              {status === 'ready' && !usePin && (
+                <button 
+                  onClick={handleFingerprint}
+                  className="w-full py-4 rounded-2xl bg-cyber-emerald text-white font-bold flex items-center justify-center gap-2 hover:bg-opacity-90 transition-all shadow-lg shadow-cyber-emerald/20"
+                >
+                  <Fingerprint size={24} /> Autenticar Digital
+                </button>
+              )}
+              
+              {status === 'ready' && usePin && (
+                <div className="space-y-4">
+                  <input 
+                    type="password" 
+                    value={pinInput} 
+                    onChange={e => setPinInput(e.target.value)} 
+                    placeholder="Digite sua senha" 
+                    className="w-full bg-industrial-bg border border-industrial-border rounded-xl p-3 text-center tracking-[0.25em] text-lg focus:border-cyber-emerald focus:outline-none"
+                  />
+                  <button onClick={handlePinAuth} className="w-full py-4 rounded-2xl bg-industrial-text text-white font-bold">
+                    Confirmar Senha
+                  </button>
+                </div>
+              )}
+
+              {status === 'ready' && (
+                <button onClick={() => setUsePin(!usePin)} className="mt-6 text-sm text-industrial-muted hover:text-industrial-text flex items-center justify-center gap-2 w-full">
+                  <KeyRound size={16} /> {usePin ? 'Usar Digital' : 'Digital não funcionou? Usar Senha'}
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      </motion.div>
+    </div>
+  );
+};
