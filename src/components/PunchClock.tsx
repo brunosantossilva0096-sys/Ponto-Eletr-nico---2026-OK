@@ -24,6 +24,7 @@ export const PunchClock = ({ employee, onBack }: { employee: Employee, onBack: (
   const [status, setStatus] = useState<'idle' | 'locating' | 'ready' | 'verifying' | 'success' | 'error'>('locating');
   const [message, setMessage] = useState('Obtendo localização...');
   const [currentCoords, setCurrentCoords] = useState<{lat: number, lng: number} | null>(null);
+  const [currentAddress, setCurrentAddress] = useState<string | null>(null);
   
   const [usePin, setUsePin] = useState(false);
   const [pinInput, setPinInput] = useState('');
@@ -45,32 +46,44 @@ export const PunchClock = ({ employee, onBack }: { employee: Employee, onBack: (
       return;
     }
 
+    const fetchAddressAndCheck = async (lat: number, lng: number, accuracy: number) => {
+      let resolvedAddress = 'Endereço não identificado';
+      try {
+        const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}`);
+        const data = await res.json();
+        if (data && data.display_name) {
+          resolvedAddress = data.display_name;
+        }
+      } catch (err) {
+        console.error('Erro na geocodificação reversa:', err);
+      }
+      setCurrentAddress(resolvedAddress);
+
+      const dist = calculateDistance(lat, lng, employee.allowed_lat!, employee.allowed_lng!);
+      setCurrentCoords({ lat, lng });
+      
+      if (dist <= employee.allowed_radius) {
+        setStatus('ready');
+        setMessage(`Localização confirmada!\nEndereço: ${resolvedAddress}\n\nColoque o dedo no leitor.`);
+      } else if (accuracy > 2000 && dist <= accuracy) {
+        // Fallback para computadores Desktop onde o GPS é baseado em IP (margem de erro gigante)
+        setStatus('ready');
+        setMessage(`Localização imprecisa via IP (margem de erro: ${Math.round(accuracy)}m).\nEndereço: ${resolvedAddress}\n\nAceito provisoriamente. Coloque o dedo no leitor.`);
+      } else {
+        setStatus('error');
+        setMessage(`Você está a ${Math.round(dist)}m do local de trabalho.\n(Máximo permitido: ${employee.allowed_radius}m)\nMargem de erro do seu GPS: ${Math.round(accuracy)}m.\nEndereço detectado: ${resolvedAddress}`);
+      }
+    };
+
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        const accuracy = pos.coords.accuracy;
-        const dist = calculateDistance(
-          pos.coords.latitude, pos.coords.longitude,
-          employee.allowed_lat!, employee.allowed_lng!
-        );
-        setCurrentCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-        
-        if (dist <= employee.allowed_radius) {
-          setStatus('ready');
-          setMessage('Localização confirmada! Coloque o dedo no leitor.');
-        } else if (accuracy > 2000 && dist <= accuracy) {
-          // Fallback para computadores Desktop onde o GPS é baseado em IP (margem de erro gigante)
-          setStatus('ready');
-          setMessage(`Localização imprecisa via IP (margem de erro: ${Math.round(accuracy)}m). Aceito provisoriamente. Coloque o dedo no leitor.`);
-        } else {
-          setStatus('error');
-          setMessage(`Você está a ${Math.round(dist)}m do local de trabalho.\n(Máximo permitido: ${employee.allowed_radius}m)\nMargem de erro do seu GPS: ${Math.round(accuracy)}m.`);
-        }
+        fetchAddressAndCheck(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy);
       },
       (err) => {
         setStatus('error');
-        setMessage('Falha ao obter GPS. Permissão negada.');
+        setMessage('Falha ao obter GPS. Permissão negada ou tempo limite excedido.');
       },
-      { enableHighAccuracy: true }
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
     );
   }, [status, employee]);
 
@@ -197,7 +210,7 @@ export const PunchClock = ({ employee, onBack }: { employee: Employee, onBack: (
               )}
 
               {status !== 'error' && status !== 'success' && (
-                <p className="text-industrial-muted mb-6">{message}</p>
+                <p className="text-industrial-muted mb-6 whitespace-pre-line">{message}</p>
               )}
 
               {status === 'ready' && !usePin && (

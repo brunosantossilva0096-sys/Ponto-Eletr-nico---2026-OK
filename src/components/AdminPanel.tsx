@@ -63,13 +63,24 @@ const MapFeatures = ({ setPosition }: { setPosition: (p: [number, number]) => vo
 
   const handleMyLocation = () => {
     navigator.geolocation.getCurrentPosition(
-      (pos) => {
+      async (pos) => {
         const lat = pos.coords.latitude;
         const lon = pos.coords.longitude;
         map.flyTo([lat, lon], 16);
         setPosition([lat, lon]);
+
+        try {
+          const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lon}`);
+          const data = await res.json();
+          if (data && data.display_name) {
+            setSearchQuery(data.display_name);
+          }
+        } catch (err) {
+          console.error('Erro na geocodificação reversa:', err);
+        }
       },
-      () => alert('Erro ao obter localização. Verifique as permissões.')
+      () => alert('Erro ao obter localização. Verifique as permissões.'),
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
     );
   };
 
