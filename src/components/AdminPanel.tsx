@@ -236,10 +236,18 @@ export const AdminPanel = ({ onLogout }: { onLogout: () => void }) => {
     let empId = null;
 
     if (selectedEmployee) {
-      await supabase.from('employees').update(empData).eq('id', selectedEmployee.id);
+      const { error } = await supabase.from('employees').update(empData).eq('id', selectedEmployee.id);
+      if (error) {
+        alert('Erro ao atualizar funcionário. Verifique se executou o script schema_v5.sql no Supabase:\n' + error.message);
+        return;
+      }
       empId = selectedEmployee.id;
     } else {
-      const { data } = await supabase.from('employees').insert([empData]).select().single();
+      const { data, error } = await supabase.from('employees').insert([empData]).select().single();
+      if (error) {
+        alert('Erro ao cadastrar funcionário. Verifique se executou o script schema_v5.sql no Supabase:\n' + error.message);
+        return;
+      }
       if (data) empId = data.id;
     }
     
@@ -316,7 +324,7 @@ export const AdminPanel = ({ onLogout }: { onLogout: () => void }) => {
             <div className="flex justify-between items-center mb-4">
               <h2 className="font-bold flex items-center gap-2"><Users size={18} className="text-cyber-emerald"/> Equipe</h2>
               <button 
-                onClick={() => { setSelectedEmployee(null); setName(''); setCpf(''); setPis(''); setRole(''); setPin(''); setCompanyId(''); setPosition(null); setGoogleMapsInput(''); setBiometricTemplate(null); setWorkStart(''); setBreakStart(''); setBreakEnd(''); setWorkEnd(''); setWorkDays([1,2,3,4,5]); }}
+                onClick={() => { setSelectedEmployee(null); setName(''); setCpf(''); setPis(''); setRole(''); setPin(''); setAuthMethod('both'); setCompanyId(''); setPosition(null); setGoogleMapsInput(''); setBiometricTemplate(null); setWorkStart(''); setBreakStart(''); setBreakEnd(''); setWorkEnd(''); setWorkDays([1,2,3,4,5]); }}
                 className="bg-cyber-emerald text-white p-2 rounded-full hover:bg-opacity-90 transition-all"
               >
                 <Plus size={16} />
