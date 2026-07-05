@@ -26,7 +26,7 @@ export const PunchClock = ({ employee, onBack }: { employee: Employee, onBack: (
   const [currentCoords, setCurrentCoords] = useState<{lat: number, lng: number} | null>(null);
   const [currentAddress, setCurrentAddress] = useState<string | null>(null);
   
-  const [usePin, setUsePin] = useState(false);
+  const [usePin, setUsePin] = useState(employee.auth_method === 'pin');
   const [pinInput, setPinInput] = useState('');
 
   // Atualizar relógio
@@ -131,13 +131,13 @@ export const PunchClock = ({ employee, onBack }: { employee: Employee, onBack: (
       }
 
       // 2. Capturar digital do sensor local
-      const capRes = await fetch('http://localhost:8000/SGIFPCapture', { method: 'POST' });
+      const capRes = await fetch('http://127.0.0.1:8000/SGIFPCapture', { method: 'POST' });
       if (!capRes.ok) throw new Error("Leitor não conectado ou falhou.");
       const capData = await capRes.json();
       if (!capData.success) throw new Error("Falha ao ler o dedo.");
 
       // 3. Comparar
-      const matchRes = await fetch('http://localhost:8000/SGIFPMatch', {
+      const matchRes = await fetch('http://127.0.0.1:8000/SGIFPMatch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ template1: capData.template, template2: dbData.template })
@@ -237,7 +237,7 @@ export const PunchClock = ({ employee, onBack }: { employee: Employee, onBack: (
                 </div>
               )}
 
-              {status === 'ready' && (
+              {status === 'ready' && (!employee.auth_method || employee.auth_method === 'both') && (
                 <button onClick={() => setUsePin(!usePin)} className="mt-6 text-sm text-industrial-muted hover:text-industrial-text flex items-center justify-center gap-2 w-full">
                   <KeyRound size={16} /> {usePin ? 'Usar Digital' : 'Digital não funcionou? Usar Senha'}
                 </button>

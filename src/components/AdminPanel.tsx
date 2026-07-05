@@ -121,6 +121,7 @@ export const AdminPanel = ({ onLogout }: { onLogout: () => void }) => {
   const [pis, setPis] = useState('');
   const [role, setRole] = useState('');
   const [pin, setPin] = useState('');
+  const [authMethod, setAuthMethod] = useState<'both' | 'digital' | 'pin'>('both');
   const [companyId, setCompanyId] = useState('');
   const [googleMapsInput, setGoogleMapsInput] = useState('');
   const [position, setPosition] = useState<[number, number] | null>(null);
@@ -199,6 +200,7 @@ export const AdminPanel = ({ onLogout }: { onLogout: () => void }) => {
     setBiometricTemplate(null); // Reset before fetch
     fetchBiometric(emp.id);
     setGoogleMapsInput('');
+    setAuthMethod(emp.auth_method || 'both');
     
     if (emp.allowed_lat && emp.allowed_lng) {
       setPosition([emp.allowed_lat, emp.allowed_lng]);
@@ -227,7 +229,8 @@ export const AdminPanel = ({ onLogout }: { onLogout: () => void }) => {
       break_start: breakStart || null,
       break_end: breakEnd || null,
       work_end: workEnd || null,
-      work_days: workDays
+      work_days: workDays,
+      auth_method: authMethod
     };
 
     let empId = null;
@@ -369,6 +372,18 @@ export const AdminPanel = ({ onLogout }: { onLogout: () => void }) => {
                 <label className="block text-xs font-semibold text-industrial-muted mb-1">Raio GPS (m)</label>
                 <input type="number" value={radius} onChange={e => setRadius(Number(e.target.value))} className="w-full bg-industrial-bg border border-industrial-border rounded-lg p-2 text-sm focus:outline-none focus:border-cyber-emerald transition-colors" />
               </div>
+              <div>
+                <label className="block text-xs font-semibold text-industrial-muted mb-1">Método de Autenticação</label>
+                <select 
+                  value={authMethod} 
+                  onChange={e => setAuthMethod(e.target.value as any)} 
+                  className="w-full bg-industrial-bg border border-industrial-border rounded-lg p-2 text-sm focus:outline-none focus:border-cyber-emerald transition-colors"
+                >
+                  <option value="both">Biometria e Senha</option>
+                  <option value="digital">Apenas Biometria</option>
+                  <option value="pin">Apenas Senha/PIN</option>
+                </select>
+              </div>
               <div className="col-span-2">
                 <label className="block text-xs font-semibold text-industrial-muted mb-1">Importar do Google Maps (Link ou Coordenadas)</label>
                 <input 
@@ -487,7 +502,7 @@ export const AdminPanel = ({ onLogout }: { onLogout: () => void }) => {
                   onClick={async () => {
                     setIsCapturing(true);
                     try {
-                      const res = await fetch('http://localhost:8000/SGIFPCapture', { method: 'POST' });
+                      const res = await fetch('http://127.0.0.1:8000/SGIFPCapture', { method: 'POST' });
                       const data = await res.json();
                       if (data.success && data.template) {
                         setBiometricTemplate(data.template);
