@@ -122,7 +122,34 @@ export const AdminPanel = ({ onLogout }: { onLogout: () => void }) => {
   const [role, setRole] = useState('');
   const [pin, setPin] = useState('');
   const [companyId, setCompanyId] = useState('');
+  const [googleMapsInput, setGoogleMapsInput] = useState('');
   const [position, setPosition] = useState<[number, number] | null>(null);
+
+  const handleImportGoogleMaps = (val: string) => {
+    setGoogleMapsInput(val);
+    if (!val) return;
+    
+    // 1. Coordenadas diretas: "-23.55052, -46.633308"
+    const directMatch = val.trim().match(/^(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)$/);
+    if (directMatch) {
+      setPosition([parseFloat(directMatch[1]), parseFloat(directMatch[2])]);
+      return;
+    }
+
+    // 2. Formato @lat,lng em URLs do Google Maps
+    const atMatch = val.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
+    if (atMatch) {
+      setPosition([parseFloat(atMatch[1]), parseFloat(atMatch[2])]);
+      return;
+    }
+
+    // 3. Parâmetros de URL q=lat,lng ou ll=lat,lng
+    const qMatch = val.match(/[?&](?:q|query|ll)=(-?\d+\.\d+),(-?\d+\.\d+)/);
+    if (qMatch) {
+      setPosition([parseFloat(qMatch[1]), parseFloat(qMatch[2])]);
+      return;
+    }
+  };
   const [radius, setRadius] = useState(100);
   const [biometricTemplate, setBiometricTemplate] = useState<string | null>(null);
   const [isCapturing, setIsCapturing] = useState(false);
@@ -171,6 +198,7 @@ export const AdminPanel = ({ onLogout }: { onLogout: () => void }) => {
     setWorkDays(emp.work_days || []);
     setBiometricTemplate(null); // Reset before fetch
     fetchBiometric(emp.id);
+    setGoogleMapsInput('');
     
     if (emp.allowed_lat && emp.allowed_lng) {
       setPosition([emp.allowed_lat, emp.allowed_lng]);
@@ -285,7 +313,7 @@ export const AdminPanel = ({ onLogout }: { onLogout: () => void }) => {
             <div className="flex justify-between items-center mb-4">
               <h2 className="font-bold flex items-center gap-2"><Users size={18} className="text-cyber-emerald"/> Equipe</h2>
               <button 
-                onClick={() => { setSelectedEmployee(null); setName(''); setCpf(''); setPis(''); setRole(''); setPin(''); setCompanyId(''); setPosition(null); setBiometricTemplate(null); setWorkStart(''); setBreakStart(''); setBreakEnd(''); setWorkEnd(''); setWorkDays([1,2,3,4,5]); }}
+                onClick={() => { setSelectedEmployee(null); setName(''); setCpf(''); setPis(''); setRole(''); setPin(''); setCompanyId(''); setPosition(null); setGoogleMapsInput(''); setBiometricTemplate(null); setWorkStart(''); setBreakStart(''); setBreakEnd(''); setWorkEnd(''); setWorkDays([1,2,3,4,5]); }}
                 className="bg-cyber-emerald text-white p-2 rounded-full hover:bg-opacity-90 transition-all"
               >
                 <Plus size={16} />
@@ -341,6 +369,16 @@ export const AdminPanel = ({ onLogout }: { onLogout: () => void }) => {
                 <label className="block text-xs font-semibold text-industrial-muted mb-1">Raio GPS (m)</label>
                 <input type="number" value={radius} onChange={e => setRadius(Number(e.target.value))} className="w-full bg-industrial-bg border border-industrial-border rounded-lg p-2 text-sm focus:outline-none focus:border-cyber-emerald transition-colors" />
               </div>
+              <div className="col-span-2">
+                <label className="block text-xs font-semibold text-industrial-muted mb-1">Importar do Google Maps (Link ou Coordenadas)</label>
+                <input 
+                  type="text" 
+                  value={googleMapsInput} 
+                  onChange={e => handleImportGoogleMaps(e.target.value)} 
+                  placeholder="Cole o link completo do local ou as coordenadas (ex: -23.564, -46.654)" 
+                  className="w-full bg-industrial-bg border border-industrial-border rounded-lg p-2 text-sm focus:outline-none focus:border-cyber-emerald transition-colors"
+                />
+              </div>
               <div>
                 <label className="block text-xs font-semibold text-industrial-muted mb-1">Latitude</label>
                 <input 
@@ -363,7 +401,7 @@ export const AdminPanel = ({ onLogout }: { onLogout: () => void }) => {
                   placeholder="Ex: -46.6333"
                 />
               </div>
-              <div className="col-span-2">
+              <div className="col-span-2 flex gap-2">
                 <button
                   type="button"
                   onClick={() => {
@@ -378,9 +416,20 @@ export const AdminPanel = ({ onLogout }: { onLogout: () => void }) => {
                       { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
                     );
                   }}
-                  className="bg-white border border-industrial-border text-industrial-text hover:border-cyber-emerald hover:text-cyber-emerald px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors flex items-center justify-center gap-2 w-full"
+                  className="flex-1 bg-white border border-industrial-border text-industrial-text hover:border-cyber-emerald hover:text-cyber-emerald px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors flex items-center justify-center gap-2"
                 >
                   <Navigation size={16} className="text-cyber-emerald" /> Usar Geolocalização do Meu Navegador (HTML5)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPosition(null);
+                    setGoogleMapsInput('');
+                  }}
+                  className="bg-white border border-red-200 text-red-600 hover:bg-red-50 px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors"
+                  title="Limpar Localização (Bate-ponto liberado sem validação GPS)"
+                >
+                  Limpar
                 </button>
               </div>
             </div>
