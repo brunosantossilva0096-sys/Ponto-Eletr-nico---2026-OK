@@ -40,14 +40,22 @@ export const PunchClock = ({ employee, onBack }: { employee: Employee, onBack: (
     return () => clearInterval(timer);
   }, []);
 
+  const getAuthInstruction = (method?: string) => {
+    if (method === 'pin') return 'Digite sua senha para registrar.';
+    if (method === 'digital') return 'Coloque o dedo no leitor para registrar.';
+    return 'Coloque o dedo no leitor ou digite sua senha.';
+  };
+
   // Pegar GPS
   useEffect(() => {
     if (status !== 'locating') return;
     
+    const instruction = getAuthInstruction(employee.auth_method);
+    
     if (!employee.allowed_lat || !employee.allowed_lng) {
       // Se o admin não configurou, permite de qualquer lugar (fallback)
       setStatus('ready');
-      setMessage('Coloque o dedo no leitor para registrar o ponto.');
+      setMessage(instruction);
       return;
     }
 
@@ -69,11 +77,11 @@ export const PunchClock = ({ employee, onBack }: { employee: Employee, onBack: (
       
       if (dist <= employee.allowed_radius) {
         setStatus('ready');
-        setMessage(`Localização confirmada!\nEndereço: ${resolvedAddress}\n\nColoque o dedo no leitor.`);
+        setMessage(`Localização confirmada!\nEndereço: ${resolvedAddress}\n\n${instruction}`);
       } else if (accuracy > 2000 && dist <= accuracy) {
         // Fallback para computadores Desktop onde o GPS é baseado em IP (margem de erro gigante)
         setStatus('ready');
-        setMessage(`Localização imprecisa via IP (margem de erro: ${Math.round(accuracy)}m).\nEndereço: ${resolvedAddress}\n\nAceito provisoriamente. Coloque o dedo no leitor.`);
+        setMessage(`Localização imprecisa via IP (margem de erro: ${Math.round(accuracy)}m).\nEndereço: ${resolvedAddress}\n\n${instruction}`);
       } else {
         setStatus('error');
         setMessage(`Você está a ${Math.round(dist)}m do local de trabalho.\n(Máximo permitido: ${employee.allowed_radius}m)\nMargem de erro do seu GPS: ${Math.round(accuracy)}m.\nEndereço detectado: ${resolvedAddress}`);
