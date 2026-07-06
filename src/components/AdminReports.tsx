@@ -137,6 +137,7 @@ export const AdminReports = () => {
     const d = new Date(log.timestamp);
     setEditDate(d.toISOString().split('T')[0]);
     setEditTime(d.toTimeString().split(' ')[0].substring(0, 5));
+    setEditType(log.type || 'Entrada Manhã');
     setEditReason(log.edit_reason || '');
   };
 
@@ -151,6 +152,7 @@ export const AdminReports = () => {
 
     await supabase.from('time_logs').update({
       timestamp: newTimestamp,
+      type: editType,
       is_edited: true,
       original_timestamp: editingLog.original_timestamp || editingLog.timestamp,
       edit_reason: editReason
@@ -292,12 +294,32 @@ export const AdminReports = () => {
                   <input type="date" required value={editDate} onChange={e => setEditDate(e.target.value)} className="w-full bg-industrial-bg border border-industrial-border rounded-lg p-2 text-sm focus:outline-none focus:border-cyber-emerald" />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-industrial-muted mb-1">Nova Hora</label>
-                  <input type="time" required value={editTime} onChange={e => setEditTime(e.target.value)} className="w-full bg-industrial-bg border border-industrial-border rounded-lg p-2 text-sm focus:outline-none focus:border-cyber-emerald" />
+                  <label className="block text-xs font-semibold text-industrial-muted mb-1">Horário Correto</label>
+                  <input 
+                    type="time" 
+                    required
+                    value={editTime}
+                    onChange={e => setEditTime(e.target.value)}
+                    className="w-full bg-industrial-bg border border-industrial-border rounded-lg p-2 text-sm focus:border-corporate-blue focus:outline-none" 
+                  />
                 </div>
               </div>
               <div>
-                <label className="block text-xs font-semibold text-industrial-muted mb-1">Motivo da Alteração (Obrigatório)</label>
+                <label className="block text-xs font-semibold text-industrial-muted mb-1">Tipo de Batida</label>
+                <select 
+                  value={editType}
+                  onChange={e => setEditType(e.target.value)}
+                  className="w-full bg-industrial-bg border border-industrial-border rounded-lg p-2 text-sm focus:border-corporate-blue focus:outline-none"
+                >
+                  <option value="Entrada Manhã">Entrada Manhã</option>
+                  <option value="Saída Almoço">Saída Almoço</option>
+                  <option value="Entrada Tarde">Entrada Tarde</option>
+                  <option value="Saída Tarde">Saída Tarde</option>
+                  <option value="Batida Extra">Batida Extra</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-industrial-muted mb-1">Motivo / Justificativa da Edição (Visível para Auditoria)</label>
                 <textarea required value={editReason} onChange={e => setEditReason(e.target.value)} placeholder="Ex: Funcionário esqueceu de bater o ponto" className="w-full bg-industrial-bg border border-industrial-border rounded-lg p-2 text-sm focus:outline-none focus:border-cyber-emerald min-h-[80px]" />
               </div>
               <button type="submit" className="w-full bg-cyber-emerald text-white py-2 rounded-xl font-bold hover:bg-opacity-90">

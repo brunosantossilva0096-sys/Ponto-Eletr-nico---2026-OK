@@ -33,6 +33,7 @@ export const EmployeeReports = ({ employee, onBack, isAdmin = false }: { employe
   const [editingLog, setEditingLog] = useState<TimeLog | null>(null);
   const [editDate, setEditDate] = useState('');
   const [editTime, setEditTime] = useState('');
+  const [editType, setEditType] = useState('Entrada Manhã');
   const [editReason, setEditReason] = useState('');
 
   const handleDelete = async (id: string) => {
@@ -47,6 +48,7 @@ export const EmployeeReports = ({ employee, onBack, isAdmin = false }: { employe
     const d = new Date(log.timestamp);
     setEditDate(d.toISOString().split('T')[0]);
     setEditTime(d.toTimeString().split(' ')[0].substring(0, 5));
+    setEditType(log.type || 'Entrada Manhã');
     setEditReason(log.edit_reason || '');
   };
 
@@ -61,6 +63,7 @@ export const EmployeeReports = ({ employee, onBack, isAdmin = false }: { employe
 
     await supabase.from('time_logs').update({
       timestamp: newTimestamp,
+      type: editType,
       is_edited: true,
       original_timestamp: editingLog.original_timestamp || editingLog.timestamp,
       edit_reason: editReason
@@ -283,6 +286,20 @@ export const EmployeeReports = ({ employee, onBack, isAdmin = false }: { employe
                   onChange={e => setEditTime(e.target.value)}
                   className="w-full bg-industrial-bg border border-industrial-border rounded-lg p-2.5 focus:border-corporate-blue focus:outline-none" 
                 />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-industrial-muted mb-1">Tipo de Batida</label>
+                <select 
+                  value={editType}
+                  onChange={e => setEditType(e.target.value)}
+                  className="w-full bg-industrial-bg border border-industrial-border rounded-lg p-2.5 focus:border-corporate-blue focus:outline-none"
+                >
+                  <option value="Entrada Manhã">Entrada Manhã</option>
+                  <option value="Saída Almoço">Saída Almoço</option>
+                  <option value="Entrada Tarde">Entrada Tarde</option>
+                  <option value="Saída Tarde">Saída Tarde</option>
+                  <option value="Batida Extra">Batida Extra</option>
+                </select>
               </div>
               <div>
                 <label className="block text-xs font-semibold text-industrial-muted mb-1">Motivo / Justificativa da Edição (Visível para Auditoria)</label>
