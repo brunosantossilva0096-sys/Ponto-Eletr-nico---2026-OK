@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabaseClient';
 import { Company } from '../types';
-import { Building2, Save, Plus } from 'lucide-react';
+import { Building2, Save, Plus, Trash2 } from 'lucide-react';
 
 export const AdminCompanies = () => {
   const [companies, setCompanies] = useState<Company[]>([]);
@@ -43,6 +43,28 @@ export const AdminCompanies = () => {
     setName('');
     setCnpj('');
     fetchCompanies();
+  };
+
+  const handleDeleteCompany = async () => {
+    if (!selectedCompany) return;
+    if (confirm(`Tem certeza que deseja excluir a empresa "${selectedCompany.name}"? Todos os funcionários vinculados serão desassociados dela.`)) {
+      try {
+        await supabase.from('employees').update({ company_id: null }).eq('company_id', selectedCompany.id);
+        const { error } = await supabase.from('companies').delete().eq('id', selectedCompany.id);
+        
+        if (error) {
+          alert('Erro ao excluir empresa: ' + error.message);
+        } else {
+          alert('Empresa excluída com sucesso!');
+          setSelectedCompany(null);
+          setName('');
+          setCnpj('');
+          fetchCompanies();
+        }
+      } catch (err: any) {
+        alert('Erro inesperado: ' + err.message);
+      }
+    }
   };
 
   return (
@@ -102,9 +124,16 @@ export const AdminCompanies = () => {
           </div>
         </div>
 
-        <button onClick={handleSave} className="w-full bg-cyber-emerald text-white py-3 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-opacity-90 transition-all mt-4">
-          <Save size={18} /> Salvar Empresa
-        </button>
+        <div className="flex gap-3 mt-4">
+          {selectedCompany && (
+            <button onClick={handleDeleteCompany} className="flex-1 bg-red-500 text-white py-3 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-opacity-90 transition-all">
+              <Trash2 size={18} /> Excluir Empresa
+            </button>
+          )}
+          <button onClick={handleSave} className={`${selectedCompany ? 'flex-1' : 'w-full'} bg-cyber-emerald text-white py-3 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-opacity-90 transition-all`}>
+            <Save size={18} /> Salvar Empresa
+          </button>
+        </div>
       </div>
     </div>
   );

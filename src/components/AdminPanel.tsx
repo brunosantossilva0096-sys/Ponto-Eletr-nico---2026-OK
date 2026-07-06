@@ -4,7 +4,7 @@ import { Employee, Company } from '../types';
 import { MapContainer, TileLayer, Marker, Circle, useMapEvents, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
-import { Users, MapPin, Save, Plus, ArrowLeft, BarChart2, Search, Navigation, Fingerprint, CheckCircle2 } from 'lucide-react';
+import { Users, MapPin, Save, Plus, ArrowLeft, BarChart2, Search, Navigation, Fingerprint, CheckCircle2, Trash2 } from 'lucide-react';
 import { AdminReports } from './AdminReports';
 import { AdminCompanies } from './AdminCompanies';
 import { AdminHolidays } from './AdminHolidays';
@@ -264,6 +264,36 @@ export const AdminPanel = ({ onLogout }: { onLogout: () => void }) => {
     alert('Funcionário salvo com sucesso!');
     setSelectedEmployee(null);
     fetchEmployees();
+  };
+
+  const handleDeleteEmployee = async () => {
+    if (!selectedEmployee) return;
+    if (confirm(`Tem certeza que deseja excluir o funcionário "${selectedEmployee.name}"? Todos os pontos batidos e digitais associadas serão excluídos permanentemente.`)) {
+      try {
+        await supabase.from('biometric_templates').delete().eq('employee_id', selectedEmployee.id);
+        await supabase.from('time_logs').delete().eq('employee_id', selectedEmployee.id);
+        const { error } = await supabase.from('employees').delete().eq('id', selectedEmployee.id);
+        
+        if (error) {
+          alert('Erro ao excluir funcionário: ' + error.message);
+        } else {
+          alert('Funcionário excluído com sucesso!');
+          setSelectedEmployee(null);
+          setName('');
+          setCpf('');
+          setPis('');
+          setRole('');
+          setPin('');
+          setCompanyId('');
+          setPosition(null);
+          setGoogleMapsInput('');
+          setBiometricTemplate(null);
+          fetchEmployees();
+        }
+      } catch (err: any) {
+        alert('Erro inesperado: ' + err.message);
+      }
+    }
   };
 
   return (
@@ -543,9 +573,16 @@ export const AdminPanel = ({ onLogout }: { onLogout: () => void }) => {
               </div>
             </div>
 
-            <button onClick={handleSave} className="w-full bg-cyber-emerald text-white py-3 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-opacity-90 transition-all">
-              <Save size={18} /> Salvar Cadastro
-            </button>
+            <div className="flex gap-3">
+              {selectedEmployee && (
+                <button type="button" onClick={handleDeleteEmployee} className="flex-1 bg-red-500 text-white py-3 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-opacity-90 transition-all">
+                  <Trash2 size={18} /> Excluir Funcionário
+                </button>
+              )}
+              <button onClick={handleSave} className={`${selectedEmployee ? 'flex-1' : 'w-full'} bg-cyber-emerald text-white py-3 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-opacity-90 transition-all`}>
+                <Save size={18} /> Salvar Cadastro
+              </button>
+            </div>
           </div>
           </div>
         )}
