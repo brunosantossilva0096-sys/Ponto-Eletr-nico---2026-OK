@@ -604,6 +604,11 @@ export const AdminPanel = ({ onLogout }: { onLogout: () => void }) => {
           </div>
           </div>
         )}
+        {activeTab === 'reports' && <AdminReports />}
+        {activeTab === 'holidays' && <AdminHolidays />}
+        {activeTab === 'companies' && <AdminCompanies />}
+        </>
+        )}
       </div>
     </div>
   );
