@@ -4,7 +4,7 @@ import { Employee, Company } from '../types';
 import { MapContainer, TileLayer, Marker, Circle, useMapEvents, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
-import { MapPin, Search, Plus, Trash2, Edit2, ShieldCheck, Navigation, FileText, Users, Save, ArrowLeft, BarChart2, Fingerprint, CheckCircle2 } from 'lucide-react';
+import { Users, MapPin, Save, Plus, ArrowLeft, Search, Navigation, Fingerprint, CheckCircle2, Trash2, Edit2, FileText } from 'lucide-react';
 import { AdminReports } from './AdminReports';
 import { AdminCompanies } from './AdminCompanies';
 import { AdminHolidays } from './AdminHolidays';
@@ -115,6 +115,7 @@ export const AdminPanel = ({ onLogout }: { onLogout: () => void }) => {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [allCompanies, setAllCompanies] = useState<Company[]>([]);
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
+  const [espelhoEmployee, setEspelhoEmployee] = useState<Employee | null>(null);
   
   // Form state
   const [name, setName] = useState('');
@@ -126,37 +127,38 @@ export const AdminPanel = ({ onLogout }: { onLogout: () => void }) => {
   const [companyId, setCompanyId] = useState('');
   const [googleMapsInput, setGoogleMapsInput] = useState('');
   const [position, setPosition] = useState<[number, number] | null>(null);
-  const [radius, setRadius] = useState(100);
-  const [biometricTemplate, setBiometricTemplate] = useState<string | null>(null);
-  const [isCapturing, setIsCapturing] = useState(false);
-  const [espelhoEmployee, setEspelhoEmployee] = useState<Employee | null>(null);
-  
-  // HR Fields
-  const [workStart, setWorkStart] = useState('');
-  const [breakStart, setBreakStart] = useState('');
-  const [breakEnd, setBreakEnd] = useState('');
-  const [workEnd, setWorkEnd] = useState('');
-  const [workDays, setWorkDays] = useState<number[]>([1,2,3,4,5]); 
 
   const handleImportGoogleMaps = (val: string) => {
     setGoogleMapsInput(val);
     if (!val) return;
+    
     const directMatch = val.trim().match(/^(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)$/);
     if (directMatch) {
       setPosition([parseFloat(directMatch[1]), parseFloat(directMatch[2])]);
       return;
     }
+
     const atMatch = val.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
     if (atMatch) {
       setPosition([parseFloat(atMatch[1]), parseFloat(atMatch[2])]);
       return;
     }
+
     const qMatch = val.match(/[?&](?:q|query|ll)=(-?\d+\.\d+),(-?\d+\.\d+)/);
     if (qMatch) {
       setPosition([parseFloat(qMatch[1]), parseFloat(qMatch[2])]);
       return;
     }
   };
+  const [radius, setRadius] = useState(100);
+  const [biometricTemplate, setBiometricTemplate] = useState<string | null>(null);
+  const [isCapturing, setIsCapturing] = useState(false);
+  
+  const [workStart, setWorkStart] = useState('');
+  const [breakStart, setBreakStart] = useState('');
+  const [breakEnd, setBreakEnd] = useState('');
+  const [workEnd, setWorkEnd] = useState('');
+  const [workDays, setWorkDays] = useState<number[]>([1,2,3,4,5]);
 
   const fetchEmployees = async () => {
     const { data } = await supabase.from('employees').select('*, companies(*)').order('name');
@@ -280,14 +282,19 @@ export const AdminPanel = ({ onLogout }: { onLogout: () => void }) => {
 
   const handleDeleteEmployee = async () => {
     if (!selectedEmployee) return;
-    if (confirm(`Tem certeza que deseja excluir o funcionário "${selectedEmployee.name}"?`)) {
+    if (confirm(`Tem certeza que deseja excluir o funcionário "${selectedEmployee.name}"? Todos os pontos batidos e digitais associadas serão excluídos permanentemente.`)) {
       try {
         await supabase.from('biometric_templates').delete().eq('employee_id', selectedEmployee.id);
         await supabase.from('time_logs').delete().eq('employee_id', selectedEmployee.id);
-        await supabase.from('employees').delete().eq('id', selectedEmployee.id);
-        alert('Funcionário excluído com sucesso!');
-        resetForm();
-        fetchEmployees();
+        const { error } = await supabase.from('employees').delete().eq('id', selectedEmployee.id);
+        
+        if (error) {
+          alert('Erro ao excluir funcionário: ' + error.message);
+        } else {
+          alert('Funcionário excluído com sucesso!');
+          resetForm();
+          fetchEmployees();
+        }
       } catch (err: any) {
         alert('Erro inesperado: ' + err.message);
       }
@@ -297,6 +304,233 @@ export const AdminPanel = ({ onLogout }: { onLogout: () => void }) => {
   return (
     <div className="min-h-screen bg-industrial-bg text-industrial-text p-6">
       <div className="max-w-6xl mx-auto space-y-6">
+        {espelhoEmployee ? (
+          <div className="bg-white p-6 rounded-2xl shadow-sm border border-industrial-border relative">
+            <EmployeeReports employee={espelhoEmployee} onBack={() => setEspelhoEmployee(null)} isAdmin={true} />
+          </div>
+        ) : (
+          <>
+            <header className="flex justify-between items-center bg-white p-6 rounded-2xl shadow-sm border border-industrial-border">
+          <div>
+            <h1 className="text-2xl font-bold text-industrial-text flex items-center gap-4">
+              Gestão Corporativa
+              <div className="flex bg-industrial-bg rounded-lg p-1">
+                <button 
+                  onClick={() => setActiveTab('employees')} 
+                  className={`px-4 py-1.5 text-sm font-semibold rounded-md transition-all ${activeTab === 'employees' ? 'bg-white shadow-sm text-cyber-emerald' : 'text-industrial-muted hover:text-industrial-text'}`}
+                >
+                  Funcionários
+                </button>
+                <button 
+                  onClick={() => setActiveTab('companies')} 
+                  className={`px-4 py-1.5 text-sm font-semibold rounded-md transition-all ${activeTab === 'companies' ? 'bg-white shadow-sm text-cyber-emerald' : 'text-industrial-muted hover:text-industrial-text'}`}
+                >
+                  Empresas
+                </button>
+                <button 
+                  onClick={() => setActiveTab('reports')} 
+                  className={`px-4 py-1.5 text-sm font-semibold rounded-md transition-all ${activeTab === 'reports' ? 'bg-white shadow-sm text-cyber-emerald' : 'text-industrial-muted hover:text-industrial-text'}`}
+                >
+                  Relatórios
+                </button>
+                <button 
+                  onClick={() => setActiveTab('holidays')} 
+                  className={`px-4 py-1.5 text-sm font-semibold rounded-md transition-all ${activeTab === 'holidays' ? 'bg-white shadow-sm text-cyber-emerald' : 'text-industrial-muted hover:text-industrial-text'}`}
+                >
+                  Feriados
+                </button>
+                <button 
+                  onClick={() => setActiveTab('absences')} 
+                  className={`px-4 py-1.5 text-sm font-semibold rounded-md transition-all ${activeTab === 'absences' ? 'bg-white shadow-sm text-cyber-emerald' : 'text-industrial-muted hover:text-industrial-text'}`}
+                >
+                  Abonos
+                </button>
+              </div>
+            </h1>
+            <p className="text-sm text-industrial-muted mt-2">Gerencie acessos, locais de registro e exporte relatórios.</p>
+          </div>
+          <button onClick={onLogout} className="text-sm font-medium text-industrial-muted hover:text-cyber-emerald flex items-center gap-2">
+            <ArrowLeft size={16} /> Voltar
+          </button>
+        </header>
+
+        {activeTab === 'companies' && <AdminCompanies />}
+        {activeTab === 'reports' && <AdminReports />}
+        {activeTab === 'holidays' && <AdminHolidays />}
+        {activeTab === 'absences' && <AdminAbsences />}
+        {activeTab === 'employees' && (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="bg-white rounded-2xl shadow-sm border border-industrial-border p-4 flex flex-col h-[600px]">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="font-bold flex items-center gap-2"><Users size={18} className="text-cyber-emerald"/> Equipe</h2>
+              <button 
+                onClick={resetForm}
+                className="bg-cyber-emerald text-white p-2 rounded-full hover:bg-opacity-90 transition-all"
+              >
+                <Plus size={16} />
+              </button>
+            </div>
+            <div className="overflow-y-auto flex-1 space-y-2">
+              {employees.map(emp => (
+                <div 
+                  key={emp.id} 
+                  className={`p-3 rounded-xl border transition-all ${selectedEmployee?.id === emp.id ? 'border-cyber-emerald bg-cyber-emerald/5' : 'border-industrial-border hover:bg-industrial-card-hover'}`}
+                >
+                  <div className="flex justify-between items-center">
+                    <div className="cursor-pointer" onClick={() => handleEdit(emp)}>
+                      <p className="font-semibold text-sm">{emp.name}</p>
+                      <p className="text-xs text-industrial-muted">{emp.role} • {emp.companies?.name || 'Sem Empresa'}</p>
+                    </div>
+                    <div className="flex gap-2">
+                      <button onClick={() => setEspelhoEmployee(emp)} className="text-industrial-muted hover:text-cyber-emerald transition-colors" title="Ver Espelho Individual">
+                        <FileText size={18} />
+                      </button>
+                      <button onClick={() => handleEdit(emp)} className="text-industrial-muted hover:text-cyber-emerald transition-colors" title="Editar Funcionário">
+                        <Edit2 size={18} />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="md:col-span-2 bg-white rounded-2xl shadow-sm border border-industrial-border p-6 h-[600px] flex flex-col overflow-y-auto">
+            <h2 className="font-bold text-lg mb-4">{selectedEmployee ? 'Editar Funcionário' : 'Novo Funcionário'}</h2>
+            
+            <div className="grid grid-cols-2 gap-4 mb-6">
+              <div>
+                <label className="block text-xs font-semibold text-industrial-muted mb-1">Nome Completo</label>
+                <input type="text" value={name} onChange={e => setName(e.target.value)} className="w-full bg-industrial-bg border border-industrial-border rounded-lg p-2 text-sm focus:outline-none focus:border-cyber-emerald transition-colors" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-industrial-muted mb-1">Empresa</label>
+                <select value={companyId} onChange={e => setCompanyId(e.target.value)} className="w-full bg-industrial-bg border border-industrial-border rounded-lg p-2 text-sm focus:outline-none focus:border-cyber-emerald transition-colors">
+                  <option value="">Selecione...</option>
+                  {allCompanies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-industrial-muted mb-1">Cargo</label>
+                <input type="text" value={role} onChange={e => setRole(e.target.value)} className="w-full bg-industrial-bg border border-industrial-border rounded-lg p-2 text-sm focus:outline-none focus:border-cyber-emerald transition-colors" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-industrial-muted mb-1">CPF (apenas números)</label>
+                <input type="text" value={cpf} onChange={e => setCpf(e.target.value)} className="w-full bg-industrial-bg border border-industrial-border rounded-lg p-2 text-sm focus:outline-none focus:border-cyber-emerald transition-colors" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-industrial-muted mb-1">PIS (apenas números)</label>
+                <input type="text" value={pis} onChange={e => setPis(e.target.value)} className="w-full bg-industrial-bg border border-industrial-border rounded-lg p-2 text-sm focus:outline-none focus:border-cyber-emerald transition-colors" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-industrial-muted mb-1">Senha (PIN)</label>
+                <input type="text" value={pin} onChange={e => setPin(e.target.value)} className="w-full bg-white border border-industrial-border rounded-lg p-2 text-sm focus:outline-none focus:border-cyber-emerald" required />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-industrial-muted mb-1">Tipo de Autenticação</label>
+                <select value={authMethod} onChange={e => setAuthMethod(e.target.value)} className="w-full bg-white border border-industrial-border rounded-lg p-2 text-sm focus:outline-none focus:border-cyber-emerald">
+                  <option value="both">Biometria OU Senha</option>
+                  <option value="strict">Senha E Biometria</option>
+                  <option value="biometrics">Somente Biometria</option>
+                  <option value="pin">Somente Senha</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-industrial-muted mb-1">Raio GPS (m)</label>
+                <input type="number" value={radius} onChange={e => setRadius(Number(e.target.value))} className="w-full bg-industrial-bg border border-industrial-border rounded-lg p-2 text-sm focus:outline-none focus:border-cyber-emerald transition-colors" />
+              </div>
+
+              <div className="col-span-2">
+                <label className="block text-xs font-semibold text-industrial-muted mb-1">Importar do Google Maps (Link ou Coordenadas)</label>
+                <input 
+                  type="text" 
+                  value={googleMapsInput} 
+                  onChange={e => handleImportGoogleMaps(e.target.value)} 
+                  placeholder="Cole o link completo do local ou as coordenadas (ex: -23.564, -46.654)" 
+                  className="w-full bg-industrial-bg border border-industrial-border rounded-lg p-2 text-sm focus:outline-none focus:border-cyber-emerald transition-colors"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-industrial-muted mb-1">Latitude</label>
+                <input 
+                  type="number" 
+                  step="any"
+                  value={position ? position[0] : ''} 
+                  onChange={e => setPosition(e.target.value ? [Number(e.target.value), position ? position[1] : 0] : null)} 
+                  className="w-full bg-industrial-bg border border-industrial-border rounded-lg p-2 text-sm focus:outline-none focus:border-cyber-emerald transition-colors" 
+                  placeholder="Ex: -23.5505"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-industrial-muted mb-1">Longitude</label>
+                <input 
+                  type="number" 
+                  step="any"
+                  value={position ? position[1] : ''} 
+                  onChange={e => setPosition(e.target.value ? [position ? position[0] : 0, Number(e.target.value)] : null)} 
+                  className="w-full bg-industrial-bg border border-industrial-border rounded-lg p-2 text-sm focus:outline-none focus:border-cyber-emerald transition-colors" 
+                  placeholder="Ex: -46.6333"
+                />
+              </div>
+              <div className="col-span-2 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.geolocation.getCurrentPosition(
+                      async (pos) => {
+                        const lat = pos.coords.latitude;
+                        const lon = pos.coords.longitude;
+                        setPosition([lat, lon]);
+                        alert(`Geolocalização do navegador obtida com sucesso!\nLat: ${lat}\nLng: ${lon}`);
+                      },
+                      () => alert('Erro ao obter localização. Verifique as permissões de geolocalização do seu navegador.'),
+                      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+                    );
+                  }}
+                  className="flex-1 bg-white border border-industrial-border text-industrial-text hover:border-cyber-emerald hover:text-cyber-emerald px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors flex items-center justify-center gap-2"
+                >
+                  <Navigation size={16} className="text-cyber-emerald" /> Usar Geolocalização do Meu Navegador
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPosition(null);
+                    setGoogleMapsInput('');
+                  }}
+                  className="bg-white border border-red-200 text-red-600 hover:bg-red-50 px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors"
+                  title="Limpar Localização"
+                >
+                  Limpar
+                </button>
+              </div>
+            </div>
+
+            <div className="mb-6 p-4 rounded-xl border border-industrial-border bg-industrial-bg/50">
+              <h3 className="font-bold text-sm mb-3">Carga Horária (Opcional)</h3>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+                <div>
+                  <label className="block text-[10px] uppercase font-bold text-industrial-muted mb-1">Entrada (Manhã)</label>
+                  <input type="time" value={workStart} onChange={e => setWorkStart(e.target.value)} className="w-full bg-white border border-industrial-border rounded-lg p-2 text-sm focus:outline-none focus:border-cyber-emerald" />
+                </div>
+                <div>
+                  <label className="block text-[10px] uppercase font-bold text-industrial-muted mb-1">Saída (Almoço)</label>
+                  <input type="time" value={breakStart} onChange={e => setBreakStart(e.target.value)} className="w-full bg-white border border-industrial-border rounded-lg p-2 text-sm focus:outline-none focus:border-cyber-emerald" />
+                </div>
+                <div>
+                  <label className="block text-[10px] uppercase font-bold text-industrial-muted mb-1">Retorno (Tarde)</label>
+                  <input type="time" value={breakEnd} onChange={e => setBreakEnd(e.target.value)} className="w-full bg-white border border-industrial-border rounded-lg p-2 text-sm focus:outline-none focus:border-cyber-emerald" />
+                </div>
+                <div>
+                  <label className="block text-[10px] uppercase font-bold text-industrial-muted mb-1">Saída (Fim)</label>
+                  <input type="time" value={workEnd} onChange={e => setWorkEnd(e.target.value)} className="w-full bg-white border border-industrial-border rounded-lg p-2 text-sm focus:outline-none focus:border-cyber-emerald" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-industrial-muted mb-2">Dias de Trabalho</label>
+                <div className="flex flex-wrap gap-2">
+                  {['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'].map((day, idx) => (
+                    <button
+                      key={idx}
                       type="button"
                       onClick={() => setWorkDays(prev => prev.includes(idx) ? prev.filter(d => d !== idx) : [...prev, idx])}
                       className={`px-3 py-1 text-xs font-semibold rounded-md border ${workDays.includes(idx) ? 'bg-cyber-emerald text-white border-cyber-emerald' : 'bg-white text-industrial-muted border-industrial-border hover:bg-industrial-bg'}`}
