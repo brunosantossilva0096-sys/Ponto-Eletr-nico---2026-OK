@@ -27,17 +27,12 @@ export const PunchClock = ({ employee, onBack }: { employee: Employee, onBack: (
   const [currentCoords, setCurrentCoords] = useState<{lat: number, lng: number} | null>(null);
   const [currentAddress, setCurrentAddress] = useState<string | null>(null);
   
-  const [usePin, setUsePin] = useState(employee.auth_method === 'pin');
+  const [usePin, setUsePin] = useState(false);
   const [pinInput, setPinInput] = useState('');
   
   const [showReports, setShowReports] = useState(false);
   const [viewReportsAuth, setViewReportsAuth] = useState(false);
   const [reportsPinInput, setReportsPinInput] = useState('');
-
-  // Sincronizar usePin com a mudança do funcionário
-  useEffect(() => {
-    setUsePin(employee.auth_method === 'pin');
-  }, [employee]);
 
   // Atualizar relógio
   useEffect(() => {
@@ -45,9 +40,7 @@ export const PunchClock = ({ employee, onBack }: { employee: Employee, onBack: (
     return () => clearInterval(timer);
   }, []);
 
-  const getAuthInstruction = (method?: string) => {
-    if (method === 'pin') return 'Digite sua senha para registrar.';
-    if (method === 'digital') return 'Coloque o dedo no leitor para registrar.';
+  const getAuthInstruction = () => {
     return 'Coloque o dedo no leitor ou digite sua senha.';
   };
 
@@ -55,7 +48,7 @@ export const PunchClock = ({ employee, onBack }: { employee: Employee, onBack: (
   useEffect(() => {
     if (status !== 'locating') return;
     
-    const instruction = getAuthInstruction(employee.auth_method);
+    const instruction = getAuthInstruction();
     
     if (!employee.allowed_lat || !employee.allowed_lng) {
       // Se o admin não configurou, permite de qualquer lugar (fallback)
@@ -270,7 +263,7 @@ export const PunchClock = ({ employee, onBack }: { employee: Employee, onBack: (
                 </div>
               )}
 
-              {status === 'ready' && (!employee.auth_method || employee.auth_method === 'both') && (
+              {status === 'ready' && (
                 <button onClick={() => setUsePin(!usePin)} className="mt-6 text-sm text-industrial-muted hover:text-industrial-text flex items-center justify-center gap-2 w-full">
                   <KeyRound size={16} /> {usePin ? 'Usar Digital' : 'Digital não funcionou? Usar Senha'}
                 </button>

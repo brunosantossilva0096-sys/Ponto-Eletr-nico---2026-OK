@@ -230,7 +230,7 @@ export const AdminPanel = ({ onLogout }: { onLogout: () => void }) => {
       break_end: breakEnd || null,
       work_end: workEnd || null,
       work_days: workDays,
-      auth_method: authMethod
+      auth_method: 'both'
     };
 
     let empId = null;
@@ -410,18 +410,7 @@ export const AdminPanel = ({ onLogout }: { onLogout: () => void }) => {
                 <label className="block text-xs font-semibold text-industrial-muted mb-1">Raio GPS (m)</label>
                 <input type="number" value={radius} onChange={e => setRadius(Number(e.target.value))} className="w-full bg-industrial-bg border border-industrial-border rounded-lg p-2 text-sm focus:outline-none focus:border-cyber-emerald transition-colors" />
               </div>
-              <div>
-                <label className="block text-xs font-semibold text-industrial-muted mb-1">Método de Autenticação</label>
-                <select 
-                  value={authMethod} 
-                  onChange={e => setAuthMethod(e.target.value as any)} 
-                  className="w-full bg-industrial-bg border border-industrial-border rounded-lg p-2 text-sm focus:outline-none focus:border-cyber-emerald transition-colors"
-                >
-                  <option value="both">Biometria e Senha</option>
-                  <option value="digital">Apenas Biometria</option>
-                  <option value="pin">Apenas Senha/PIN</option>
-                </select>
-              </div>
+
               <div className="col-span-2">
                 <label className="block text-xs font-semibold text-industrial-muted mb-1">Importar do Google Maps (Link ou Coordenadas)</label>
                 <input 
