@@ -43,12 +43,12 @@ export const AdminReports = () => {
   });
 
   const handleExportCSV = () => {
-    let csv = 'Data,Hora,Funcionario,Empresa,CPF,Metodo,Distancia(m),Lat,Lng,Hash,Editado,MotivoEdicao\n';
+    let csv = 'Data,Hora,Tipo,Funcionario,Empresa,CPF,Metodo,Distancia(m),Lat,Lng,Hash,Editado,MotivoEdicao\n';
     filtered.forEach(log => {
       const d = new Date(log.timestamp);
       const dateStr = d.toLocaleDateString('pt-BR');
       const timeStr = d.toLocaleTimeString('pt-BR');
-      csv += `${dateStr},${timeStr},${log.employees.name},${log.employees.companies?.name || 'Sem Empresa'},${log.employees.cpf},${log.verification_method},${log.distance ? Math.round(log.distance) : ''},${log.latitude || ''},${log.longitude || ''},${log.hash_assinatura},${log.is_edited ? 'Sim' : 'Não'},${log.edit_reason || ''}\n`;
+      csv += `${dateStr},${timeStr},${log.type || 'Batida'},${log.employees.name},${log.employees.companies?.name || 'Sem Empresa'},${log.employees.cpf},${log.verification_method},${log.distance ? Math.round(log.distance) : ''},${log.latitude || ''},${log.longitude || ''},${log.hash_assinatura},${log.is_edited ? 'Sim' : 'Não'},${log.edit_reason || ''}\n`;
     });
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
@@ -78,10 +78,11 @@ export const AdminReports = () => {
     
     doc.setFont('Helvetica', 'bold');
     doc.text('Data/Hora', 14, y);
-    doc.text('Funcionário', 55, y);
-    doc.text('Empresa', 110, y);
-    doc.text('Método', 150, y);
-    doc.text('GPS/Info', 175, y);
+    doc.text('Tipo', 50, y);
+    doc.text('Funcionário', 85, y);
+    doc.text('Empresa', 130, y);
+    doc.text('Método', 165, y);
+    doc.text('GPS', 190, y);
     
     doc.line(14, y + 2, 196, y + 2);
     y += 8;
@@ -93,10 +94,11 @@ export const AdminReports = () => {
         y = 20;
         doc.setFont('Helvetica', 'bold');
         doc.text('Data/Hora', 14, y);
-        doc.text('Funcionário', 55, y);
-        doc.text('Empresa', 110, y);
-        doc.text('Método', 150, y);
-        doc.text('GPS/Info', 175, y);
+        doc.text('Tipo', 50, y);
+        doc.text('Funcionário', 85, y);
+        doc.text('Empresa', 130, y);
+        doc.text('Método', 165, y);
+        doc.text('GPS', 190, y);
         doc.line(14, y + 2, 196, y + 2);
         y += 8;
         doc.setFont('Helvetica', 'normal');
@@ -104,16 +106,18 @@ export const AdminReports = () => {
       
       const dateVal = new Date(log.timestamp);
       const dateTimeStr = `${dateVal.toLocaleDateString('pt-BR')} ${dateVal.toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'})}`;
+      const typeStr = log.type || 'Batida';
       const nameStr = log.employees?.name || '';
       const compStr = log.employees?.companies?.name || '';
       const methodStr = log.verification_method || '';
-      const gpsStr = log.distance ? `${Math.round(log.distance)}m` : 'Sem GPS';
+      const gpsStr = log.distance ? `${Math.round(log.distance)}m` : '-';
       
       doc.text(dateTimeStr, 14, y);
-      doc.text(nameStr.substring(0, 24), 55, y);
-      doc.text(compStr.substring(0, 18), 110, y);
-      doc.text(methodStr.substring(0, 12), 150, y);
-      doc.text(gpsStr, 175, y);
+      doc.text(typeStr.substring(0, 16), 50, y);
+      doc.text(nameStr.substring(0, 20), 85, y);
+      doc.text(compStr.substring(0, 18), 130, y);
+      doc.text(methodStr.substring(0, 12), 165, y);
+      doc.text(gpsStr, 190, y);
       
       y += 6;
     });
@@ -206,6 +210,7 @@ export const AdminReports = () => {
           <thead className="bg-industrial-bg text-industrial-muted sticky top-0">
             <tr>
               <th className="p-3 font-semibold">Data/Hora</th>
+              <th className="p-3 font-semibold">Tipo</th>
               <th className="p-3 font-semibold">Funcionário</th>
               <th className="p-3 font-semibold">Empresa</th>
               <th className="p-3 font-semibold">Método</th>
@@ -220,6 +225,17 @@ export const AdminReports = () => {
                   <span className="font-semibold block">{new Date(log.timestamp).toLocaleDateString('pt-BR')}</span>
                   <span className="text-industrial-muted text-xs">{new Date(log.timestamp).toLocaleTimeString('pt-BR')}</span>
                   {log.is_edited && <span className="text-[10px] text-orange-600 font-bold uppercase tracking-wider block mt-1">Editado</span>}
+                </td>
+                <td className="p-3">
+                  <span className={`px-2 py-1 rounded-md text-xs font-semibold ${
+                    log.type === 'Entrada Manhã' ? 'bg-cyber-emerald/10 text-cyber-emerald' :
+                    log.type === 'Saída Almoço' ? 'bg-orange-50 text-orange-500' :
+                    log.type === 'Entrada Tarde' ? 'bg-blue-50 text-corporate-blue' :
+                    log.type === 'Saída Tarde' ? 'bg-purple-50 text-purple-600' :
+                    'bg-industrial-bg text-industrial-muted'
+                  }`}>
+                    {log.type || 'Batida'}
+                  </span>
                 </td>
                 <td className="p-3">
                   <span className="font-semibold block">{log.employees?.name}</span>
@@ -251,7 +267,7 @@ export const AdminReports = () => {
             ))}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={6} className="p-8 text-center text-industrial-muted">Nenhum registro encontrado.</td>
+                <td colSpan={7} className="p-8 text-center text-industrial-muted">Nenhum registro encontrado.</td>
               </tr>
             )}
           </tbody>

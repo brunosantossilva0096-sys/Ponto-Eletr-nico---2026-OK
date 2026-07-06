@@ -1,9 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabaseClient';
-import { Employee } from '../types';
-import { MapPin, Fingerprint, KeyRound, AlertTriangle, ArrowLeft, CheckCircle2, FileText } from 'lucide-react';
+import { Employee, TimeLog } from '../types';
+import { MapPin, Fingerprint, KeyRound, AlertTriangle, ArrowLeft, CheckCircle2, FileText, LogIn, LogOut, Coffee, Moon } from 'lucide-react';
 import { motion } from 'motion/react';
 import { EmployeeReports } from './EmployeeReports';
+
+const PUNCH_TYPES = [
+  { type: 'Entrada Manhã', label: 'Entrada Manhã', icon: LogIn, color: 'text-cyber-emerald', bg: 'bg-cyber-emerald/10' },
+  { type: 'Saída Almoço', label: 'Saída Almoço', icon: Coffee, color: 'text-orange-500', bg: 'bg-orange-50' },
+  { type: 'Entrada Tarde', label: 'Entrada Tarde', icon: LogIn, color: 'text-corporate-blue', bg: 'bg-blue-50' },
+  { type: 'Saída Tarde', label: 'Saída Tarde', icon: Moon, color: 'text-purple-600', bg: 'bg-purple-50' },
+];
 
 const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
   const R = 6371e3; // Raio da terra em metros
@@ -27,12 +34,45 @@ export const PunchClock = ({ employee, onBack }: { employee: Employee, onBack: (
   const [currentCoords, setCurrentCoords] = useState<{lat: number, lng: number} | null>(null);
   const [currentAddress, setCurrentAddress] = useState<string | null>(null);
   
-  const [usePin, setUsePin] = useState(false);
+  const authMethod = employee.auth_method || 'both';
+  const [usePin, setUsePin] = useState(authMethod === 'pin');
   const [pinInput, setPinInput] = useState('');
+  const [strictPinVerified, setStrictPinVerified] = useState(false);
   
   const [showReports, setShowReports] = useState(false);
   const [viewReportsAuth, setViewReportsAuth] = useState(false);
   const [reportsPinInput, setReportsPinInput] = useState('');
+  
+  // Punch type detection
+  const [todayLogs, setTodayLogs] = useState<TimeLog[]>([]);
+  const [punchIndex, setPunchIndex] = useState(0);
+
+  const currentPunch = punchIndex < PUNCH_TYPES.length ? PUNCH_TYPES[punchIndex] : { type: `Batida Extra #${punchIndex - 3}`, label: `Batida Extra #${punchIndex - 3}`, icon: LogIn, color: 'text-industrial-muted', bg: 'bg-industrial-bg' };
+  const PunchIcon = currentPunch.icon;
+
+  // Fetch today's punches to determine next type
+  useEffect(() => {
+    const fetchTodayLogs = async () => {
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+      const todayEnd = new Date();
+      todayEnd.setHours(23, 59, 59, 999);
+
+      const { data } = await supabase
+        .from('time_logs')
+        .select('*')
+        .eq('employee_id', employee.id)
+        .gte('timestamp', todayStart.toISOString())
+        .lte('timestamp', todayEnd.toISOString())
+        .order('timestamp', { ascending: true });
+      
+      if (data) {
+        setTodayLogs(data);
+        setPunchIndex(data.length);
+      }
+    };
+    fetchTodayLogs();
+  }, [employee.id]);
 
   // Atualizar relógio
   useEffect(() => {
@@ -103,15 +143,18 @@ export const PunchClock = ({ employee, onBack }: { employee: Employee, onBack: (
     const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`${employee.id}-${Date.now()}`));
     const hashStr = Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
 
+    let finalMethod = method;
+    if (authMethod === 'strict') finalMethod = 'Biometria + Senha';
+
     const log = {
       id: crypto.randomUUID(),
       employee_id: employee.id,
       timestamp: new Date().toISOString(),
-      type: 'Batida',
+      type: currentPunch.type,
       distance: currentCoords && employee.allowed_lat ? calculateDistance(currentCoords.lat, currentCoords.lng, employee.allowed_lat, employee.allowed_lng) : null,
       latitude: currentCoords?.lat || null,
       longitude: currentCoords?.lng || null,
-      verification_method: method,
+      verification_method: finalMethod,
       hash_assinatura: hashStr,
       pis_pasep_trabalhador: employee.pis,
       cpf_trabalhador: employee.cpf
@@ -124,7 +167,7 @@ export const PunchClock = ({ employee, onBack }: { employee: Employee, onBack: (
       setMessage('Erro ao salvar no servidor.');
     } else {
       setStatus('success');
-      setMessage('Ponto registrado com sucesso!');
+      setMessage(`${currentPunch.label} registrado com sucesso!`);
       setTimeout(() => onBack(), 3000);
     }
   };
@@ -167,13 +210,21 @@ export const PunchClock = ({ employee, onBack }: { employee: Employee, onBack: (
     }
   };
 
-  const handlePinAuth = async () => {
-    if (pinInput === employee.pin) {
-      await recordTimeLog('Senha/PIN');
-    } else {
-      setStatus('error');
-      setMessage('Senha incorreta.');
+  const handlePinAuth = () => {
+    if (pinInput !== employee.pin) {
+      alert('Senha incorreta!');
+      return;
     }
+    
+    if (authMethod === 'strict') {
+      setStrictPinVerified(true);
+      setUsePin(false);
+      setPinInput('');
+      setMessage('Senha validada! Agora coloque seu dedo no leitor.');
+      return;
+    }
+    
+    recordTimeLog('Senha PIN');
   };
 
   const handleReportsPinAuth = (e: React.FormEvent) => {
@@ -208,6 +259,26 @@ export const PunchClock = ({ employee, onBack }: { employee: Employee, onBack: (
             {time.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
           </div>
           <p className="text-sm text-industrial-muted mt-2">{time.toLocaleDateString('pt-BR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
+          
+          {/* Punch type indicator */}
+          <div className={`mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-full ${currentPunch.bg} ${currentPunch.color} font-bold text-sm`}>
+            <PunchIcon size={16} />
+            {currentPunch.label}
+          </div>
+          
+          {/* Today's punches summary */}
+          {todayLogs.length > 0 && (
+            <div className="mt-3 flex justify-center gap-2 flex-wrap">
+              {todayLogs.map((log, idx) => {
+                const punchInfo = idx < PUNCH_TYPES.length ? PUNCH_TYPES[idx] : null;
+                return (
+                  <span key={log.id} className="text-[10px] bg-white border border-industrial-border px-2 py-1 rounded-md text-industrial-muted">
+                    {punchInfo ? punchInfo.label : `Extra #${idx - 3}`}: {new Date(log.timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         <div className="p-8 flex flex-col items-center justify-center min-h-[250px]">
@@ -239,16 +310,16 @@ export const PunchClock = ({ employee, onBack }: { employee: Employee, onBack: (
                 <p className="text-industrial-muted mb-6 whitespace-pre-line">{message}</p>
               )}
 
-              {status === 'ready' && !usePin && (
+              {status === 'ready' && (!usePin || strictPinVerified) && authMethod !== 'pin' && (
                 <button 
                   onClick={handleFingerprint}
                   className="w-full py-4 rounded-2xl bg-cyber-emerald text-white font-bold flex items-center justify-center gap-2 hover:bg-opacity-90 transition-all shadow-lg shadow-cyber-emerald/20"
                 >
-                  <Fingerprint size={24} /> Autenticar Digital
+                  <Fingerprint size={24} /> Registrar {currentPunch.label}
                 </button>
               )}
               
-              {status === 'ready' && usePin && (
+              {status === 'ready' && (usePin || authMethod === 'strict' && !strictPinVerified) && (
                 <div className="space-y-4">
                   <input 
                     type="password" 
@@ -258,12 +329,12 @@ export const PunchClock = ({ employee, onBack }: { employee: Employee, onBack: (
                     className="w-full bg-industrial-bg border border-industrial-border rounded-xl p-3 text-center tracking-[0.25em] text-lg focus:border-cyber-emerald focus:outline-none"
                   />
                   <button onClick={handlePinAuth} className="w-full py-4 rounded-2xl bg-industrial-text text-white font-bold">
-                    Confirmar Senha
+                    {authMethod === 'strict' ? 'Próximo Passo (Biometria)' : 'Confirmar Senha'}
                   </button>
                 </div>
               )}
 
-              {status === 'ready' && (
+              {status === 'ready' && authMethod === 'both' && (
                 <button onClick={() => setUsePin(!usePin)} className="mt-6 text-sm text-industrial-muted hover:text-industrial-text flex items-center justify-center gap-2 w-full">
                   <KeyRound size={16} /> {usePin ? 'Usar Digital' : 'Digital não funcionou? Usar Senha'}
                 </button>
