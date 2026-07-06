@@ -116,13 +116,9 @@ export const PunchClock = ({ employee, onBack }: { employee: Employee, onBack: (
       if (dist <= employee.allowed_radius) {
         setStatus('ready');
         setMessage(`Localização confirmada!\nEndereço: ${resolvedAddress}\n\n${instruction}`);
-      } else if (accuracy > 2000 && dist <= accuracy) {
-        // Fallback para computadores Desktop onde o GPS é baseado em IP (margem de erro gigante)
-        setStatus('ready');
-        setMessage(`Localização imprecisa via IP (margem de erro: ${Math.round(accuracy)}m).\nEndereço: ${resolvedAddress}\n\n${instruction}`);
       } else {
         setStatus('error');
-        setMessage(`Você está a ${Math.round(dist)}m do local de trabalho.\n(Máximo permitido: ${employee.allowed_radius}m)\nMargem de erro do seu GPS: ${Math.round(accuracy)}m.\nEndereço detectado: ${resolvedAddress}`);
+        setMessage(`Você está fora da área de localização permitida para bater o ponto.\nDistância atual: ${Math.round(dist)}m (Máximo: ${employee.allowed_radius}m).`);
       }
     };
 
