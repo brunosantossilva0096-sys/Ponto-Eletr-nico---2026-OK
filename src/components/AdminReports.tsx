@@ -12,6 +12,7 @@ export const AdminReports = () => {
   const [editingLog, setEditingLog] = useState<TimeLog | null>(null);
   const [editDate, setEditDate] = useState('');
   const [editTime, setEditTime] = useState('');
+  const [editType, setEditType] = useState('Entrada Manhã');
   const [editReason, setEditReason] = useState('');
 
   const fetchLogs = async () => {

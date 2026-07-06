@@ -31,6 +31,8 @@ export const EmployeeReports = ({ employee, onBack, isAdmin = false }: { employe
     return true;
   });
 
+  const timeBankReport = calculateTimeBank(employee, logs, startDate, endDate);
+
   const [editingLog, setEditingLog] = useState<TimeLog | null>(null);
   const [editDate, setEditDate] = useState('');
   const [editTime, setEditTime] = useState('');

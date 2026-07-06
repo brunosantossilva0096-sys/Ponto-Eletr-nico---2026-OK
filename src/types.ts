@@ -19,6 +19,9 @@ export interface Employee {
   company_id?: string;
   companies?: Company; // Para queries com JOIN
   
+  // Auth Fields
+  auth_method?: 'pin' | 'biometrics' | 'both' | 'strict';
+  
   // RH Fields (Standard Schedule)
   work_start?: string | null;
   break_start?: string | null;
