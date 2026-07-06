@@ -34,6 +34,11 @@ export const PunchClock = ({ employee, onBack }: { employee: Employee, onBack: (
   const [viewReportsAuth, setViewReportsAuth] = useState(false);
   const [reportsPinInput, setReportsPinInput] = useState('');
 
+  // Sincronizar usePin com a mudança do funcionário
+  useEffect(() => {
+    setUsePin(employee.auth_method === 'pin');
+  }, [employee]);
+
   // Atualizar relógio
   useEffect(() => {
     const timer = setInterval(() => setTime(new Date()), 1000);
