@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabaseClient';
 import { TimeLog, Employee } from '../types';
-import { Download, FileText, ArrowLeft, Clock, Edit2, Trash2, X } from 'lucide-react';
+import { Download, FileText, ArrowLeft, Clock, Edit2, Trash2, X, Calculator } from 'lucide-react';
 import { jsPDF } from 'jspdf';
+import { calculateTimeBank, formatHours, formatHoursNeutral } from '../utils/timeBank';
 
 export const EmployeeReports = ({ employee, onBack, isAdmin = false }: { employee: Employee, onBack: () => void, isAdmin?: boolean }) => {
   const [logs, setLogs] = useState<TimeLog[]>([]);
@@ -183,6 +184,32 @@ export const EmployeeReports = ({ employee, onBack, isAdmin = false }: { employe
             />
           </div>
         </div>
+
+        {timeBankReport && (
+          <div className="mb-6 p-4 bg-industrial-bg rounded-xl border border-industrial-border flex flex-col md:flex-row gap-6 justify-between items-center">
+            <div className="flex items-center gap-3 text-industrial-text">
+              <Calculator size={24} className="text-cyber-emerald" />
+              <div>
+                <p className="font-bold">Resumo do Período</p>
+                <p className="text-xs text-industrial-muted">De {new Date(`${startDate}T12:00:00`).toLocaleDateString('pt-BR')} até {new Date(`${endDate}T12:00:00`).toLocaleDateString('pt-BR')}</p>
+              </div>
+            </div>
+            <div className="flex gap-6 w-full md:w-auto">
+              <div>
+                <p className="text-xs font-bold text-industrial-muted uppercase">Trabalhado</p>
+                <p className="font-bold">{formatHoursNeutral(timeBankReport.worked)}</p>
+              </div>
+              <div>
+                <p className="text-xs font-bold text-industrial-muted uppercase">Esperado</p>
+                <p className="font-bold">{formatHoursNeutral(timeBankReport.expected)}</p>
+              </div>
+              <div className={`px-4 py-1 rounded-lg ${timeBankReport.balance >= 0 ? 'bg-cyber-emerald/10 text-cyber-emerald' : 'bg-red-50 text-red-600'}`}>
+                <p className="text-xs font-bold uppercase">Saldo</p>
+                <p className="font-black text-lg">{formatHours(timeBankReport.balance)}</p>
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="flex-1 overflow-auto border border-industrial-border rounded-xl">
           <table className="w-full text-left text-sm">
