@@ -25,7 +25,6 @@ export interface Employee {
   break_end?: string | null;
   work_end?: string | null;
   work_days?: number[]; // [0,1,2,3,4,5,6] onde 0 = Domingo
-  auth_method?: 'both' | 'digital' | 'pin';
 }
 
 export interface TimeLog {
