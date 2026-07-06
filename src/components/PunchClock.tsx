@@ -177,7 +177,7 @@ export const PunchClock = ({ employee, onBack }: { employee: Employee, onBack: (
       // 1. Pegar digital cadastrada
       const { data: dbData } = await supabase.from('biometric_templates').select('template').eq('employee_id', employee.id).maybeSingle();
       if (!dbData || !dbData.template) {
-        throw new Error("Sua digital não está cadastrada no sistema. Use o PIN.");
+        throw new Error("Sua digital não está cadastrada no sistema.");
       }
 
       // 2. Capturar digital do sensor local
