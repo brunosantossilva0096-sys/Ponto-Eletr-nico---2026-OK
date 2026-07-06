@@ -234,8 +234,8 @@ export const AdminPanel = ({ onLogout }: { onLogout: () => void }) => {
 
     const empData = {
       name,
-      cpf,
-      pis,
+      cpf: cpf || null,
+      pis: pis || null,
       role,
       pin,
       auth_method: authMethod,
