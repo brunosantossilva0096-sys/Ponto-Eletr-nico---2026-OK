@@ -340,7 +340,7 @@ export const PunchClock = ({ employee, onBack }: { employee: Employee, onBack: (
                 onClick={() => setViewReportsAuth(true)} 
                 className="mt-4 text-xs font-semibold text-industrial-muted hover:text-cyber-emerald flex items-center justify-center gap-1.5 w-full pt-4 border-t border-industrial-border/50"
               >
-                <FileText size={14} /> Ver Meu Espelho de Ponto (PDF)
+                <FileText size={14} /> Ver Meu Espelho e Banco de Horas (PDF)
               </button>
             </div>
           )}

@@ -96,9 +96,20 @@ export const EmployeeReports = ({ employee, onBack, isAdmin = false }: { employe
       doc.text(`Período: ${startDate ? new Date(startDate + 'T00:00:00').toLocaleDateString('pt-BR') : 'Início'} até ${endDate ? new Date(endDate + 'T00:00:00').toLocaleDateString('pt-BR') : 'Fim'}`, 14, 47);
     }
     
-    doc.line(14, 50, 196, 50);
+    let y = 55;
+
+    if (timeBankReport) {
+      doc.setFont('Helvetica', 'bold');
+      doc.text('Resumo do Banco de Horas:', 14, y);
+      doc.setFont('Helvetica', 'normal');
+      y += 5;
+      doc.text(`Trabalhado: ${formatHoursNeutral(timeBankReport.worked)} | Esperado: ${formatHoursNeutral(timeBankReport.expected)} | Saldo: ${formatHours(timeBankReport.balance)}`, 14, y);
+      y += 8;
+    } else {
+      y = 58;
+    }
     
-    let y = 58;
+    doc.line(14, y - 4, 196, y - 4);
     
     doc.setFont('Helvetica', 'bold');
     doc.text('Data/Hora', 14, y);
