@@ -19,12 +19,22 @@ export interface Employee {
   company_id?: string;
   companies?: Company; // Para queries com JOIN
   
-  // RH Fields
+  // RH Fields (Standard Schedule)
   work_start?: string | null;
   break_start?: string | null;
   break_end?: string | null;
   work_end?: string | null;
-  work_days?: number[]; // [0,1,2,3,4,5,6] onde 0 = Domingo
+  work_days?: number[];
+  
+  // RH Fields (Custom Schedule)
+  schedule_type?: 'standard' | 'custom';
+  custom_schedule?: Record<number, { 
+    active: boolean; 
+    work_start: string; 
+    break_start: string; 
+    break_end: string; 
+    work_end: string; 
+  }>; // [0,1,2,3,4,5,6] onde 0 = Domingo
 }
 
 export interface TimeLog {

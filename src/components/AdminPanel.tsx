@@ -153,12 +153,24 @@ export const AdminPanel = ({ onLogout }: { onLogout: () => void }) => {
   const [radius, setRadius] = useState(100);
   const [biometricTemplate, setBiometricTemplate] = useState<string | null>(null);
   const [isCapturing, setIsCapturing] = useState(false);
-  
   const [workStart, setWorkStart] = useState('');
   const [breakStart, setBreakStart] = useState('');
   const [breakEnd, setBreakEnd] = useState('');
   const [workEnd, setWorkEnd] = useState('');
   const [workDays, setWorkDays] = useState<number[]>([1,2,3,4,5]);
+  
+  const DEFAULT_CUSTOM = {
+    0: { active: false, work_start: '', break_start: '', break_end: '', work_end: '' },
+    1: { active: true, work_start: '08:00', break_start: '12:00', break_end: '13:00', work_end: '18:00' },
+    2: { active: true, work_start: '08:00', break_start: '12:00', break_end: '13:00', work_end: '18:00' },
+    3: { active: true, work_start: '08:00', break_start: '12:00', break_end: '13:00', work_end: '18:00' },
+    4: { active: true, work_start: '08:00', break_start: '12:00', break_end: '13:00', work_end: '18:00' },
+    5: { active: true, work_start: '08:00', break_start: '12:00', break_end: '13:00', work_end: '18:00' },
+    6: { active: false, work_start: '', break_start: '', break_end: '', work_end: '' },
+  };
+  
+  const [scheduleType, setScheduleType] = useState<'standard' | 'custom'>('standard');
+  const [customSchedule, setCustomSchedule] = useState<any>(DEFAULT_CUSTOM);
 
   const fetchEmployees = async () => {
     const { data } = await supabase.from('employees').select('*, companies(*)').order('name');
@@ -198,6 +210,8 @@ export const AdminPanel = ({ onLogout }: { onLogout: () => void }) => {
     setBreakEnd('');
     setWorkEnd('');
     setWorkDays([1,2,3,4,5]);
+    setScheduleType('standard');
+    setCustomSchedule(DEFAULT_CUSTOM);
   };
 
   const handleEdit = (emp: Employee) => {
@@ -215,6 +229,8 @@ export const AdminPanel = ({ onLogout }: { onLogout: () => void }) => {
     setBreakEnd(emp.break_end || '');
     setWorkEnd(emp.work_end || '');
     setWorkDays(emp.work_days || [1,2,3,4,5]);
+    setScheduleType(emp.schedule_type || 'standard');
+    setCustomSchedule(emp.custom_schedule && Object.keys(emp.custom_schedule).length > 0 ? emp.custom_schedule : DEFAULT_CUSTOM);
     setBiometricTemplate(null);
     fetchBiometric(emp.id);
     setGoogleMapsInput('');
@@ -244,8 +260,12 @@ export const AdminPanel = ({ onLogout }: { onLogout: () => void }) => {
       allowed_radius: radius,
       company_id: companyId,
       work_start: workStart || null,
+      break_start: breakStart || null,
+      break_end: breakEnd || null,
       work_end: workEnd || null,
       work_days: workDays,
+      schedule_type: scheduleType,
+      custom_schedule: customSchedule,
     };
 
     let empId = null;
@@ -506,40 +526,103 @@ export const AdminPanel = ({ onLogout }: { onLogout: () => void }) => {
             </div>
 
             <div className="mb-6 p-4 rounded-xl border border-industrial-border bg-industrial-bg/50">
-              <h3 className="font-bold text-sm mb-3">Carga Horária (Opcional)</h3>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-                <div>
-                  <label className="block text-[10px] uppercase font-bold text-industrial-muted mb-1">Entrada (Manhã)</label>
-                  <input type="time" value={workStart} onChange={e => setWorkStart(e.target.value)} className="w-full bg-white border border-industrial-border rounded-lg p-2 text-sm focus:outline-none focus:border-cyber-emerald" />
-                </div>
-                <div>
-                  <label className="block text-[10px] uppercase font-bold text-industrial-muted mb-1">Saída (Almoço)</label>
-                  <input type="time" value={breakStart} onChange={e => setBreakStart(e.target.value)} className="w-full bg-white border border-industrial-border rounded-lg p-2 text-sm focus:outline-none focus:border-cyber-emerald" />
-                </div>
-                <div>
-                  <label className="block text-[10px] uppercase font-bold text-industrial-muted mb-1">Retorno (Tarde)</label>
-                  <input type="time" value={breakEnd} onChange={e => setBreakEnd(e.target.value)} className="w-full bg-white border border-industrial-border rounded-lg p-2 text-sm focus:outline-none focus:border-cyber-emerald" />
-                </div>
-                <div>
-                  <label className="block text-[10px] uppercase font-bold text-industrial-muted mb-1">Saída (Fim)</label>
-                  <input type="time" value={workEnd} onChange={e => setWorkEnd(e.target.value)} className="w-full bg-white border border-industrial-border rounded-lg p-2 text-sm focus:outline-none focus:border-cyber-emerald" />
-                </div>
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-industrial-muted mb-2">Dias de Trabalho</label>
-                <div className="flex flex-wrap gap-2">
-                  {['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'].map((day, idx) => (
-                    <button
-                      key={idx}
-                      type="button"
-                      onClick={() => setWorkDays(prev => prev.includes(idx) ? prev.filter(d => d !== idx) : [...prev, idx])}
-                      className={`px-3 py-1 text-xs font-semibold rounded-md border ${workDays.includes(idx) ? 'bg-cyber-emerald text-white border-cyber-emerald' : 'bg-white text-industrial-muted border-industrial-border hover:bg-industrial-bg'}`}
-                    >
-                      {day}
-                    </button>
-                  ))}
+              <div className="flex justify-between items-center mb-3">
+                <h3 className="font-bold text-sm">Carga Horária (Opcional)</h3>
+                <div className="flex bg-white rounded-lg border border-industrial-border p-1">
+                  <button 
+                    type="button"
+                    onClick={() => setScheduleType('standard')}
+                    className={`px-3 py-1 text-xs font-semibold rounded-md transition-all ${scheduleType === 'standard' ? 'bg-industrial-text text-white' : 'text-industrial-muted hover:text-industrial-text'}`}
+                  >
+                    Padrão Semanal
+                  </button>
+                  <button 
+                    type="button"
+                    onClick={() => setScheduleType('custom')}
+                    className={`px-3 py-1 text-xs font-semibold rounded-md transition-all ${scheduleType === 'custom' ? 'bg-industrial-text text-white' : 'text-industrial-muted hover:text-industrial-text'}`}
+                  >
+                    Individual (Por Dia)
+                  </button>
                 </div>
               </div>
+
+              {scheduleType === 'standard' ? (
+                <>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+                    <div>
+                      <label className="block text-[10px] uppercase font-bold text-industrial-muted mb-1">Entrada (Manhã)</label>
+                      <input type="time" value={workStart} onChange={e => setWorkStart(e.target.value)} className="w-full bg-white border border-industrial-border rounded-lg p-2 text-sm focus:outline-none focus:border-cyber-emerald" />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] uppercase font-bold text-industrial-muted mb-1">Saída (Almoço)</label>
+                      <input type="time" value={breakStart} onChange={e => setBreakStart(e.target.value)} className="w-full bg-white border border-industrial-border rounded-lg p-2 text-sm focus:outline-none focus:border-cyber-emerald" />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] uppercase font-bold text-industrial-muted mb-1">Retorno (Tarde)</label>
+                      <input type="time" value={breakEnd} onChange={e => setBreakEnd(e.target.value)} className="w-full bg-white border border-industrial-border rounded-lg p-2 text-sm focus:outline-none focus:border-cyber-emerald" />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] uppercase font-bold text-industrial-muted mb-1">Saída (Fim)</label>
+                      <input type="time" value={workEnd} onChange={e => setWorkEnd(e.target.value)} className="w-full bg-white border border-industrial-border rounded-lg p-2 text-sm focus:outline-none focus:border-cyber-emerald" />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-industrial-muted mb-2">Dias de Trabalho</label>
+                    <div className="flex flex-wrap gap-2">
+                      {['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'].map((day, idx) => (
+                        <button
+                          key={idx}
+                          type="button"
+                          onClick={() => setWorkDays(prev => prev.includes(idx) ? prev.filter(d => d !== idx) : [...prev, idx])}
+                          className={`px-3 py-1 text-xs font-semibold rounded-md border ${workDays.includes(idx) ? 'bg-cyber-emerald text-white border-cyber-emerald' : 'bg-white text-industrial-muted border-industrial-border hover:bg-industrial-bg'}`}
+                        >
+                          {day}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="space-y-3">
+                  {['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'].map((dayName, idx) => {
+                    const sc = customSchedule[idx];
+                    return (
+                      <div key={idx} className="flex flex-col md:flex-row items-start md:items-center gap-3 bg-white p-3 rounded-lg border border-industrial-border">
+                        <div className="w-24 flex items-center gap-2">
+                          <input 
+                            type="checkbox" 
+                            checked={sc.active} 
+                            onChange={(e) => setCustomSchedule({ ...customSchedule, [idx]: { ...sc, active: e.target.checked } })}
+                            className="rounded border-industrial-border text-cyber-emerald focus:ring-cyber-emerald"
+                          />
+                          <span className={`text-sm font-semibold ${sc.active ? 'text-industrial-text' : 'text-industrial-muted'}`}>{dayName}</span>
+                        </div>
+                        
+                        {sc.active ? (
+                          <div className="flex-1 grid grid-cols-4 gap-2 w-full">
+                            <div>
+                              <input type="time" title="Entrada" value={sc.work_start} onChange={(e) => setCustomSchedule({ ...customSchedule, [idx]: { ...sc, work_start: e.target.value } })} className="w-full bg-industrial-bg border border-industrial-border rounded-md p-1.5 text-xs focus:outline-none focus:border-cyber-emerald" />
+                            </div>
+                            <div>
+                              <input type="time" title="Saída Almoço" value={sc.break_start} onChange={(e) => setCustomSchedule({ ...customSchedule, [idx]: { ...sc, break_start: e.target.value } })} className="w-full bg-industrial-bg border border-industrial-border rounded-md p-1.5 text-xs focus:outline-none focus:border-cyber-emerald" />
+                            </div>
+                            <div>
+                              <input type="time" title="Retorno Tarde" value={sc.break_end} onChange={(e) => setCustomSchedule({ ...customSchedule, [idx]: { ...sc, break_end: e.target.value } })} className="w-full bg-industrial-bg border border-industrial-border rounded-md p-1.5 text-xs focus:outline-none focus:border-cyber-emerald" />
+                            </div>
+                            <div>
+                              <input type="time" title="Saída Fim" value={sc.work_end} onChange={(e) => setCustomSchedule({ ...customSchedule, [idx]: { ...sc, work_end: e.target.value } })} className="w-full bg-industrial-bg border border-industrial-border rounded-md p-1.5 text-xs focus:outline-none focus:border-cyber-emerald" />
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="flex-1 text-xs text-industrial-muted italic py-1.5">
+                            Sem expediente (Folga)
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
             
             {/* Biometria Section */}
