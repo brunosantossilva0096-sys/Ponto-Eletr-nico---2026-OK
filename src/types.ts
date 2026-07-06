@@ -28,6 +28,7 @@ export interface Employee {
   
   // RH Fields (Custom Schedule)
   schedule_type?: 'standard' | 'custom';
+  weekly_hours?: number;
   custom_schedule?: Record<number, { 
     active: boolean; 
     work_start: string; 

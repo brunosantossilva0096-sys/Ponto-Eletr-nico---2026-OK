@@ -10,6 +10,7 @@ import { AdminCompanies } from './AdminCompanies';
 import { AdminHolidays } from './AdminHolidays';
 import { AdminAbsences } from './AdminAbsences';
 import { EmployeeReports } from './EmployeeReports';
+import { AdminTimeBank } from './AdminTimeBank';
 
 // Fix Leaflet default marker icon issue in React
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -111,7 +112,7 @@ const MapFeatures = ({ setPosition }: { setPosition: (p: [number, number]) => vo
 };
 
 export const AdminPanel = ({ onLogout }: { onLogout: () => void }) => {
-  const [activeTab, setActiveTab] = useState<'employees' | 'reports' | 'companies' | 'holidays' | 'absences'>('employees');
+  const [activeTab, setActiveTab] = useState<'employees' | 'companies' | 'reports' | 'holidays' | 'absences' | 'timebank'>('employees');
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [allCompanies, setAllCompanies] = useState<Company[]>([]);
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
@@ -158,6 +159,7 @@ export const AdminPanel = ({ onLogout }: { onLogout: () => void }) => {
   const [breakEnd, setBreakEnd] = useState('');
   const [workEnd, setWorkEnd] = useState('');
   const [workDays, setWorkDays] = useState<number[]>([1,2,3,4,5]);
+  const [weeklyHours, setWeeklyHours] = useState<number>(44);
   
   const DEFAULT_CUSTOM = {
     0: { active: false, work_start: '', break_start: '', break_end: '', work_end: '' },
@@ -210,6 +212,7 @@ export const AdminPanel = ({ onLogout }: { onLogout: () => void }) => {
     setBreakEnd('');
     setWorkEnd('');
     setWorkDays([1,2,3,4,5]);
+    setWeeklyHours(44);
     setScheduleType('standard');
     setCustomSchedule(DEFAULT_CUSTOM);
   };
@@ -229,6 +232,7 @@ export const AdminPanel = ({ onLogout }: { onLogout: () => void }) => {
     setBreakEnd(emp.break_end || '');
     setWorkEnd(emp.work_end || '');
     setWorkDays(emp.work_days || [1,2,3,4,5]);
+    setWeeklyHours(emp.weekly_hours || 44);
     setScheduleType(emp.schedule_type || 'standard');
     setCustomSchedule(emp.custom_schedule && Object.keys(emp.custom_schedule).length > 0 ? emp.custom_schedule : DEFAULT_CUSTOM);
     setBiometricTemplate(null);
@@ -264,6 +268,7 @@ export const AdminPanel = ({ onLogout }: { onLogout: () => void }) => {
       break_end: breakEnd || null,
       work_end: workEnd || null,
       work_days: workDays,
+      weekly_hours: weeklyHours,
       schedule_type: scheduleType,
       custom_schedule: customSchedule,
     };
@@ -365,6 +370,12 @@ export const AdminPanel = ({ onLogout }: { onLogout: () => void }) => {
                 >
                   Abonos
                 </button>
+                <button 
+                  onClick={() => setActiveTab('timebank')} 
+                  className={`px-4 py-1.5 text-sm font-semibold rounded-md transition-all ${activeTab === 'timebank' ? 'bg-white shadow-sm text-cyber-emerald' : 'text-industrial-muted hover:text-industrial-text'}`}
+                >
+                  Banco de Horas
+                </button>
               </div>
             </h1>
             <p className="text-sm text-industrial-muted mt-2">Gerencie acessos, locais de registro e exporte relatórios.</p>
@@ -378,6 +389,7 @@ export const AdminPanel = ({ onLogout }: { onLogout: () => void }) => {
         {activeTab === 'reports' && <AdminReports />}
         {activeTab === 'holidays' && <AdminHolidays />}
         {activeTab === 'absences' && <AdminAbsences />}
+        {activeTab === 'timebank' && <AdminTimeBank />}
         {activeTab === 'employees' && (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <div className="bg-white rounded-2xl shadow-sm border border-industrial-border p-4 flex flex-col h-[600px]">
@@ -527,7 +539,18 @@ export const AdminPanel = ({ onLogout }: { onLogout: () => void }) => {
 
             <div className="mb-6 p-4 rounded-xl border border-industrial-border bg-industrial-bg/50">
               <div className="flex justify-between items-center mb-3">
-                <h3 className="font-bold text-sm">Carga Horária (Opcional)</h3>
+                <div className="flex items-center gap-4">
+                  <h3 className="font-bold text-sm">Carga Horária</h3>
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs text-industrial-muted font-bold">Jornada Semanal (Horas):</label>
+                    <input 
+                      type="number" 
+                      value={weeklyHours} 
+                      onChange={(e) => setWeeklyHours(Number(e.target.value))}
+                      className="w-16 bg-white border border-industrial-border rounded p-1 text-xs focus:outline-none focus:border-cyber-emerald"
+                    />
+                  </div>
+                </div>
                 <div className="flex bg-white rounded-lg border border-industrial-border p-1">
                   <button 
                     type="button"
