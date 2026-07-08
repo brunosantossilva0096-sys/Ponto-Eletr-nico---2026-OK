@@ -7,8 +7,10 @@ import { calculateTimeBank, formatHours, formatHoursNeutral } from '../utils/tim
 
 export const EmployeeReports = ({ employee, onBack, isAdmin = false }: { employee: Employee, onBack: () => void, isAdmin?: boolean }) => {
   const [logs, setLogs] = useState<TimeLog[]>([]);
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
+  const today = new Date();
+  const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+  const [startDate, setStartDate] = useState(firstDay.toISOString().split('T')[0]);
+  const [endDate, setEndDate] = useState(today.toISOString().split('T')[0]);
 
   const fetchLogs = async () => {
     const { data } = await supabase
@@ -217,7 +219,7 @@ export const EmployeeReports = ({ employee, onBack, isAdmin = false }: { employe
                 <p className="font-bold">{formatHoursNeutral(timeBankReport.expected)}</p>
               </div>
               <div className={`px-4 py-1 rounded-lg ${timeBankReport.balance >= 0 ? 'bg-cyber-emerald/10 text-cyber-emerald' : 'bg-red-50 text-red-600'}`}>
-                <p className="text-xs font-bold uppercase">Saldo</p>
+                <p className="text-xs font-bold uppercase">Saldo {timeBankReport.balance >= 0 ? '(Positivo)' : '(Negativo)'}</p>
                 <p className="font-black text-lg">{formatHours(timeBankReport.balance)}</p>
               </div>
             </div>

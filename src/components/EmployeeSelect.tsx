@@ -49,7 +49,7 @@ export const EmployeeSelect = ({ onSelectEmployee, onAdminLogin }: { onSelectEmp
             <div className="absolute top-0 right-0 p-4 opacity-20">
               <Building2 size={80} />
             </div>
-            <h1 className="text-2xl md:text-3xl font-bold font-display relative z-10">Ponto Digital</h1>
+            <h1 className="text-2xl md:text-3xl font-bold font-display relative z-10">Ponto Eletrônico Digital</h1>
             <p className="opacity-90 mt-2 text-sm relative z-10">Selecione a Empresa para bater o ponto</p>
           </div>
 

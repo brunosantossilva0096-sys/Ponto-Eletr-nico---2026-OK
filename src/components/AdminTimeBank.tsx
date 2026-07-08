@@ -115,7 +115,7 @@ export const AdminTimeBank = () => {
               </div>
               <div className={`rounded-xl p-6 border ${report.balance >= 0 ? 'bg-cyber-emerald/10 border-cyber-emerald' : 'bg-red-50 border-red-200'}`}>
                 <p className="text-xs font-bold uppercase mb-1 flex justify-between">
-                  <span className={report.balance >= 0 ? 'text-cyber-emerald' : 'text-red-600'}>Saldo Final</span>
+                  <span className={report.balance >= 0 ? 'text-cyber-emerald' : 'text-red-600'}>Saldo Final {report.balance >= 0 ? '(Positivo)' : '(Negativo)'}</span>
                 </p>
                 <p className={`text-4xl font-black ${report.balance >= 0 ? 'text-cyber-emerald' : 'text-red-600'}`}>
                   {formatHours(report.balance)}

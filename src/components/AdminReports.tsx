@@ -81,7 +81,7 @@ export const AdminReports = ({ loggedAdmin }: { loggedAdmin: AdminUser }) => {
     
     doc.setFont('Helvetica', 'bold');
     doc.setFontSize(16);
-    doc.text('Relatório de Ponto Eletrônico - Ponto Digital', 14, 20);
+    doc.text('Relatório - Ponto Eletrônico Digital', 14, 20);
     
     doc.setFont('Helvetica', 'normal');
     doc.setFontSize(10);
