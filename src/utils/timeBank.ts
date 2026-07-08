@@ -1,5 +1,12 @@
 import { Employee, TimeLog } from '../types';
 
+const calcMinutes = (startStr?: string | null, endStr?: string | null) => {
+  if (!startStr || !endStr) return 0;
+  const [h1, m1] = startStr.split(':').map(Number);
+  const [h2, m2] = endStr.split(':').map(Number);
+  return (h2 * 60 + m2) - (h1 * 60 + m1);
+};
+
 export const calculateTimeBank = (employee: Employee | null, logs: TimeLog[], startDateStr: string, endDateStr: string) => {
   if (!employee || !startDateStr || !endDateStr) return null;
 
@@ -14,20 +21,9 @@ export const calculateTimeBank = (employee: Employee | null, logs: TimeLog[], st
   });
 
   let totalWorkedMinutes = 0;
-  const daily: { date: string, worked: number, expected: number, balance: number }[] = [];
+  let overallExpectedMinutes = 0;
+  const daily: { date: string, worked: number, expected: number, balance: number, logs: TimeLog[] }[] = [];
   
-  // Primeiro vamos definir as horas diárias esperadas
-  const weeklyHours = employee.weekly_hours || 44;
-  let dailyExpectedHours = 0;
-  if (employee.schedule_type === 'custom' && employee.custom_schedule) {
-    const activeDaysPerWeek = Object.values(employee.custom_schedule).filter((s: any) => s.active).length;
-    dailyExpectedHours = activeDaysPerWeek > 0 ? (weeklyHours / activeDaysPerWeek) : 0;
-  } else {
-    const activeDaysPerWeek = employee.work_days ? employee.work_days.length : 5;
-    dailyExpectedHours = activeDaysPerWeek > 0 ? (weeklyHours / activeDaysPerWeek) : 0;
-  }
-  const expectedMinutesPerDay = Math.round(dailyExpectedHours * 60);
-
   // Calculate worked hours per day
   Object.keys(logsByDate).forEach(date => {
     const dayLogs = logsByDate[date].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
@@ -67,19 +63,31 @@ export const calculateTimeBank = (employee: Employee | null, logs: TimeLog[], st
     const dObj = new Date(`${date}T12:00:00`);
     const dayOfWeek = dObj.getDay();
     let isWorkDay = false;
+    let expectedMinutesPerDay = 0;
     
     if (employee.schedule_type === 'custom' && employee.custom_schedule) {
-      if (employee.custom_schedule[dayOfWeek]?.active) isWorkDay = true;
+      const schedule = employee.custom_schedule[dayOfWeek];
+      if (schedule?.active) {
+        isWorkDay = true;
+        const workMins = calcMinutes(schedule.work_start, schedule.break_start) + calcMinutes(schedule.break_end, schedule.work_end);
+        const fallback = Math.round((employee.weekly_hours || 44) / Object.values(employee.custom_schedule).filter((s: any) => s.active).length * 60);
+        expectedMinutesPerDay = workMins > 0 ? workMins : fallback;
+      }
     } else {
-      if (employee.work_days && employee.work_days.includes(dayOfWeek)) isWorkDay = true;
+      if (!employee.work_days || employee.work_days.includes(dayOfWeek)) {
+        isWorkDay = true;
+        const workMins = calcMinutes(employee.work_start, employee.break_start) + calcMinutes(employee.break_end, employee.work_end);
+        const activeDaysPerWeek = employee.work_days ? employee.work_days.length : 5;
+        const fallback = activeDaysPerWeek > 0 ? Math.round((employee.weekly_hours || 44) / activeDaysPerWeek * 60) : 0;
+        expectedMinutesPerDay = workMins > 0 ? workMins : fallback;
+      }
     }
     
-    const exp = isWorkDay ? expectedMinutesPerDay : 0;
     daily.push({
       date,
       worked: Math.round(workedInDay),
-      expected: exp,
-      balance: Math.round(workedInDay) - exp,
+      expected: expectedMinutesPerDay,
+      balance: Math.round(workedInDay) - expectedMinutesPerDay,
       logs: dayLogs
     });
   });
@@ -90,19 +98,28 @@ export const calculateTimeBank = (employee: Employee | null, logs: TimeLog[], st
   const start = new Date(`${startDateStr}T00:00:00`);
   const end = new Date(`${endDateStr}T23:59:59`);
   
-  let workDaysCount = 0;
   const current = new Date(start);
   while (current <= end) {
     const dayOfWeek = current.getDay();
+    
     if (employee.schedule_type === 'custom' && employee.custom_schedule) {
-      if (employee.custom_schedule[dayOfWeek]?.active) workDaysCount++;
+      const schedule = employee.custom_schedule[dayOfWeek];
+      if (schedule?.active) {
+        const workMins = calcMinutes(schedule.work_start, schedule.break_start) + calcMinutes(schedule.break_end, schedule.work_end);
+        const fallback = Math.round((employee.weekly_hours || 44) / Object.values(employee.custom_schedule).filter((s: any) => s.active).length * 60);
+        overallExpectedMinutes += workMins > 0 ? workMins : fallback;
+      }
     } else {
-      if (employee.work_days && employee.work_days.includes(dayOfWeek)) workDaysCount++;
+      if (!employee.work_days || employee.work_days.includes(dayOfWeek)) {
+        const workMins = calcMinutes(employee.work_start, employee.break_start) + calcMinutes(employee.break_end, employee.work_end);
+        const activeDaysPerWeek = employee.work_days ? employee.work_days.length : 5;
+        const fallback = activeDaysPerWeek > 0 ? Math.round((employee.weekly_hours || 44) / activeDaysPerWeek * 60) : 0;
+        overallExpectedMinutes += workMins > 0 ? workMins : fallback;
+      }
     }
     current.setDate(current.getDate() + 1);
   }
 
-  const overallExpectedMinutes = Math.round(dailyExpectedHours * workDaysCount * 60);
   const overallBalanceMinutes = Math.round(totalWorkedMinutes) - overallExpectedMinutes;
 
   return {
