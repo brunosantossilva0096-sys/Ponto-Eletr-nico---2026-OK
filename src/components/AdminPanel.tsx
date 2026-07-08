@@ -11,6 +11,8 @@ import { AdminHolidays } from './AdminHolidays';
 import { AdminAbsences } from './AdminAbsences';
 import { EmployeeReports } from './EmployeeReports';
 import { AdminTimeBank } from './AdminTimeBank';
+import { AdminUsersTab } from './AdminUsersTab';
+import { AdminUser } from '../types';
 
 // Fix Leaflet default marker icon issue in React
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -111,8 +113,8 @@ const MapFeatures = ({ setPosition }: { setPosition: (p: [number, number]) => vo
   );
 };
 
-export const AdminPanel = ({ onLogout }: { onLogout: () => void }) => {
-  const [activeTab, setActiveTab] = useState<'employees' | 'companies' | 'reports' | 'holidays' | 'absences' | 'timebank'>('employees');
+export const AdminPanel = ({ loggedAdmin, onLogout }: { loggedAdmin: AdminUser, onLogout: () => void }) => {
+  const [activeTab, setActiveTab] = useState<'employees' | 'companies' | 'reports' | 'holidays' | 'absences' | 'timebank' | 'admins'>(loggedAdmin.role === 'convencional' ? 'reports' : 'employees');
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [allCompanies, setAllCompanies] = useState<Company[]>([]);
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
@@ -339,19 +341,24 @@ export const AdminPanel = ({ onLogout }: { onLogout: () => void }) => {
           <div>
             <h1 className="text-2xl font-bold text-industrial-text flex items-center gap-4">
               Gestão Corporativa
-              <div className="flex bg-industrial-bg rounded-lg p-1">
-                <button 
-                  onClick={() => setActiveTab('employees')} 
-                  className={`px-4 py-1.5 text-sm font-semibold rounded-md transition-all ${activeTab === 'employees' ? 'bg-white shadow-sm text-cyber-emerald' : 'text-industrial-muted hover:text-industrial-text'}`}
-                >
-                  Funcionários
-                </button>
-                <button 
-                  onClick={() => setActiveTab('companies')} 
-                  className={`px-4 py-1.5 text-sm font-semibold rounded-md transition-all ${activeTab === 'companies' ? 'bg-white shadow-sm text-cyber-emerald' : 'text-industrial-muted hover:text-industrial-text'}`}
-                >
-                  Empresas
-                </button>
+              <div className="flex bg-industrial-bg rounded-lg p-1 overflow-x-auto max-w-full">
+                {loggedAdmin.role !== 'convencional' && (
+                  <>
+                    <button 
+                      onClick={() => setActiveTab('employees')} 
+                      className={`px-4 py-1.5 text-sm font-semibold rounded-md transition-all whitespace-nowrap ${activeTab === 'employees' ? 'bg-white shadow-sm text-cyber-emerald' : 'text-industrial-muted hover:text-industrial-text'}`}
+                    >
+                      Funcionários
+                    </button>
+                    <button 
+                      onClick={() => setActiveTab('companies')} 
+                      className={`px-4 py-1.5 text-sm font-semibold rounded-md transition-all whitespace-nowrap ${activeTab === 'companies' ? 'bg-white shadow-sm text-cyber-emerald' : 'text-industrial-muted hover:text-industrial-text'}`}
+                    >
+                      Empresas
+                    </button>
+                  </>
+                )}
+
                 <button 
                   onClick={() => setActiveTab('reports')} 
                   className={`px-4 py-1.5 text-sm font-semibold rounded-md transition-all ${activeTab === 'reports' ? 'bg-white shadow-sm text-cyber-emerald' : 'text-industrial-muted hover:text-industrial-text'}`}
@@ -376,6 +383,14 @@ export const AdminPanel = ({ onLogout }: { onLogout: () => void }) => {
                 >
                   Banco de Horas
                 </button>
+                {loggedAdmin.role === 'total' && (
+                  <button 
+                    onClick={() => setActiveTab('admins')} 
+                    className={`px-4 py-1.5 text-sm font-semibold rounded-md transition-all whitespace-nowrap ${activeTab === 'admins' ? 'bg-white shadow-sm text-cyber-emerald' : 'text-industrial-muted hover:text-industrial-text'}`}
+                  >
+                    Administradores
+                  </button>
+                )}
               </div>
             </h1>
             <p className="text-sm text-industrial-muted mt-2">Gerencie acessos, locais de registro e exporte relatórios.</p>
@@ -386,11 +401,12 @@ export const AdminPanel = ({ onLogout }: { onLogout: () => void }) => {
         </header>
 
         {activeTab === 'companies' && <AdminCompanies />}
-        {activeTab === 'reports' && <AdminReports />}
+        {activeTab === 'reports' && <AdminReports loggedAdmin={loggedAdmin} />}
         {activeTab === 'holidays' && <AdminHolidays />}
         {activeTab === 'absences' && <AdminAbsences />}
         {activeTab === 'timebank' && <AdminTimeBank />}
-        {activeTab === 'employees' && (
+        {activeTab === 'admins' && <AdminUsersTab loggedAdmin={loggedAdmin} />}
+        {activeTab === 'employees' && loggedAdmin.role !== 'convencional' && (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <div className="bg-white rounded-2xl shadow-sm border border-industrial-border p-4 flex flex-col h-[600px]">
             <div className="flex justify-between items-center mb-4">
@@ -710,9 +726,12 @@ export const AdminPanel = ({ onLogout }: { onLogout: () => void }) => {
           </div>
           </div>
         )}
-        {activeTab === 'reports' && <AdminReports />}
+        {activeTab === 'reports' && <AdminReports loggedAdmin={loggedAdmin} />}
         {activeTab === 'holidays' && <AdminHolidays />}
         {activeTab === 'companies' && <AdminCompanies />}
+        {activeTab === 'absences' && <AdminAbsences />}
+        {activeTab === 'timebank' && <AdminTimeBank />}
+        {activeTab === 'admins' && <AdminUsersTab loggedAdmin={loggedAdmin} />}
         </>
         )}
       </div>

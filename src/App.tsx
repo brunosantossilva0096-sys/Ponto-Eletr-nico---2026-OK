@@ -2,28 +2,21 @@ import React, { useState } from 'react';
 import { EmployeeSelect } from './components/EmployeeSelect';
 import { PunchClock } from './components/PunchClock';
 import { AdminPanel } from './components/AdminPanel';
-import { Employee } from './types';
+import { AdminLogin } from './components/AdminLogin';
+import { Employee, AdminUser } from './types';
 import { supabase } from './supabaseClient';
 
 function App() {
-  const [currentView, setCurrentView] = useState<'select' | 'punch' | 'admin'>('select');
+  const [currentView, setCurrentView] = useState<'select' | 'punch' | 'admin' | 'admin_login'>('select');
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
-
-  const handleAdminLogin = () => {
-    const pass = prompt('Digite a senha do Administrador:');
-    if (pass === 'admin') {
-      setCurrentView('admin');
-    } else {
-      alert('Senha incorreta!');
-    }
-  };
+  const [loggedAdminUser, setLoggedAdminUser] = useState<AdminUser | null>(null);
 
   return (
     <>
       {currentView === 'select' && (
         <EmployeeSelect 
           onSelectEmployee={(emp) => { setSelectedEmployee(emp); setCurrentView('punch'); }} 
-          onAdminLogin={handleAdminLogin} 
+          onAdminLogin={() => setCurrentView('admin_login')} 
         />
       )}
       
@@ -34,8 +27,21 @@ function App() {
         />
       )}
 
-      {currentView === 'admin' && (
-        <AdminPanel onLogout={() => setCurrentView('select')} />
+      {currentView === 'admin_login' && (
+        <AdminLogin 
+          onLogin={(user) => {
+            setLoggedAdminUser(user);
+            setCurrentView('admin');
+          }}
+          onBack={() => setCurrentView('select')}
+        />
+      )}
+
+      {currentView === 'admin' && loggedAdminUser && (
+        <AdminPanel 
+          loggedAdmin={loggedAdminUser} 
+          onLogout={() => { setLoggedAdminUser(null); setCurrentView('select'); }} 
+        />
       )}
     </>
   );

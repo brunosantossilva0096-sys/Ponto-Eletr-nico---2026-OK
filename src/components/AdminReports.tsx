@@ -1,19 +1,30 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabaseClient';
-import { TimeLog, Employee } from '../types';
-import { Download, Search, Clock, Pencil, Trash2, X, AlertTriangle, FileText } from 'lucide-react';
+import { TimeLog, Employee, AdminUser } from '../types';
+import { Download, Search, Clock, Pencil, Trash2, X, AlertTriangle, FileText, Plus } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 
-export const AdminReports = () => {
+export const AdminReports = ({ loggedAdmin }: { loggedAdmin: AdminUser }) => {
   const [logs, setLogs] = useState<(TimeLog & { employees: Employee })[]>([]);
+  const [allEmployees, setAllEmployees] = useState<Employee[]>([]);
   const [search, setSearch] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
+  
+  // Edit State
   const [editingLog, setEditingLog] = useState<TimeLog | null>(null);
   const [editDate, setEditDate] = useState('');
   const [editTime, setEditTime] = useState('');
   const [editType, setEditType] = useState('Entrada Manhã');
   const [editReason, setEditReason] = useState('');
+
+  // Add Manual State
+  const [isAddingManual, setIsAddingManual] = useState(false);
+  const [addEmployeeId, setAddEmployeeId] = useState('');
+  const [addDate, setAddDate] = useState('');
+  const [addTime, setAddTime] = useState('');
+  const [addType, setAddType] = useState('Entrada Manhã');
+  const [addReason, setAddReason] = useState('');
 
   const fetchLogs = async () => {
     const { data } = await supabase
@@ -24,8 +35,14 @@ export const AdminReports = () => {
     if (data) setLogs(data as any);
   };
 
+  const fetchEmployees = async () => {
+    const { data } = await supabase.from('employees').select('*').order('name');
+    if (data) setAllEmployees(data);
+  };
+
   useEffect(() => {
     fetchLogs();
+    fetchEmployees();
   }, []);
 
   const filtered = logs.filter(l => {
@@ -127,6 +144,7 @@ export const AdminReports = () => {
   };
 
   const handleDelete = async (id: string) => {
+    if (loggedAdmin.role === 'convencional') return;
     if (confirm('Atenção: Você está prestes a excluir um registro de ponto. Esta ação é irreversível. Deseja continuar?')) {
       await supabase.from('time_logs').delete().eq('id', id);
       fetchLogs();
@@ -134,6 +152,7 @@ export const AdminReports = () => {
   };
 
   const openEdit = (log: TimeLog) => {
+    if (loggedAdmin.role === 'convencional') return;
     setEditingLog(log);
     const d = new Date(log.timestamp);
     setEditDate(d.toISOString().split('T')[0]);
@@ -163,11 +182,47 @@ export const AdminReports = () => {
     fetchLogs();
   };
 
+  const handleAddManual = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!addEmployeeId || !addDate || !addTime || !addReason) {
+      alert('Preencha todos os campos obrigatórios.');
+      return;
+    }
+    
+    const emp = allEmployees.find(x => x.id === addEmployeeId);
+    if (!emp) return;
+
+    const newTimestamp = new Date(`${addDate}T${addTime}:00`).toISOString();
+
+    await supabase.from('time_logs').insert([{
+      employee_id: addEmployeeId,
+      timestamp: newTimestamp,
+      type: addType,
+      verification_method: 'Manual (Admin)',
+      hash_assinatura: 'INSERCAO-MANUAL-' + Date.now(),
+      pis_pasep_trabalhador: emp.pis,
+      cpf_trabalhador: emp.cpf,
+      is_edited: true,
+      original_timestamp: newTimestamp,
+      edit_reason: 'Inserção Manual: ' + addReason
+    }]);
+
+    setIsAddingManual(false);
+    setAddEmployeeId('');
+    setAddReason('');
+    fetchLogs();
+  };
+
   return (
     <div className="bg-white rounded-2xl shadow-sm border border-industrial-border p-6 h-[600px] flex flex-col relative">
       <div className="flex justify-between items-center mb-6">
         <h2 className="font-bold text-lg flex items-center gap-2"><Clock size={18} className="text-cyber-emerald"/> Relatório de Batidas</h2>
         <div className="flex gap-2">
+          {loggedAdmin.role !== 'convencional' && (
+            <button onClick={() => setIsAddingManual(true)} className="bg-cyber-emerald text-white px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2 hover:bg-opacity-90 transition-all mr-2">
+              <Plus size={16} /> Inserir Batida
+            </button>
+          )}
           <button onClick={handleExportCSV} className="bg-white border border-industrial-border text-industrial-text px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2 hover:bg-industrial-bg transition-colors">
             <Download size={16} /> Exportar CSV
           </button>
@@ -218,7 +273,7 @@ export const AdminReports = () => {
               <th className="p-3 font-semibold">Empresa</th>
               <th className="p-3 font-semibold">Método</th>
               <th className="p-3 font-semibold">Info</th>
-              <th className="p-3 font-semibold text-right">Ações</th>
+              {loggedAdmin.role !== 'convencional' && <th className="p-3 font-semibold text-right">Ações</th>}
             </tr>
           </thead>
           <tbody className="divide-y divide-industrial-border">
@@ -227,7 +282,7 @@ export const AdminReports = () => {
                 <td className="p-3">
                   <span className="font-semibold block">{new Date(log.timestamp).toLocaleDateString('pt-BR')}</span>
                   <span className="text-industrial-muted text-xs">{new Date(log.timestamp).toLocaleTimeString('pt-BR')}</span>
-                  {log.is_edited && <span className="text-[10px] text-orange-600 font-bold uppercase tracking-wider block mt-1">Editado</span>}
+                  {log.is_edited && <span className="text-[10px] text-orange-600 font-bold uppercase tracking-wider block mt-1">Editado / Manual</span>}
                 </td>
                 <td className="p-3">
                   <span className={`px-2 py-1 rounded-md text-xs font-semibold ${
@@ -258,28 +313,31 @@ export const AdminReports = () => {
                     {log.hash_assinatura.substring(0, 10)}...
                   </span>
                 </td>
-                <td className="p-3 text-right whitespace-nowrap">
-                  <button onClick={() => openEdit(log)} className="text-corporate-blue hover:text-blue-800 p-1 mr-1" title="Editar">
-                    <Pencil size={16} />
-                  </button>
-                  <button onClick={() => handleDelete(log.id)} className="text-red-500 hover:text-red-700 p-1" title="Excluir">
-                    <Trash2 size={16} />
-                  </button>
-                </td>
+                {loggedAdmin.role !== 'convencional' && (
+                  <td className="p-3 text-right whitespace-nowrap">
+                    <button onClick={() => openEdit(log)} className="text-corporate-blue hover:text-blue-800 p-1 mr-1" title="Editar">
+                      <Pencil size={16} />
+                    </button>
+                    <button onClick={() => handleDelete(log.id)} className="text-red-500 hover:text-red-700 p-1" title="Excluir">
+                      <Trash2 size={16} />
+                    </button>
+                  </td>
+                )}
               </tr>
             ))}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={7} className="p-8 text-center text-industrial-muted">Nenhum registro encontrado.</td>
+                <td colSpan={loggedAdmin.role !== 'convencional' ? 7 : 6} className="p-8 text-center text-industrial-muted">Nenhum registro encontrado.</td>
               </tr>
             )}
           </tbody>
         </table>
       </div>
 
+      {/* Edit Log Modal */}
       {editingLog && (
         <div className="absolute inset-0 bg-black/40 rounded-2xl flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden animate-fade-in">
             <div className="p-4 border-b border-industrial-border flex justify-between items-center bg-industrial-bg">
               <h3 className="font-bold flex items-center gap-2"><Pencil size={16} className="text-cyber-emerald" /> Editar Ponto</h3>
               <button onClick={() => setEditingLog(null)} className="text-industrial-muted hover:text-industrial-text"><X size={18}/></button>
@@ -330,6 +388,70 @@ export const AdminReports = () => {
           </div>
         </div>
       )}
+
+      {/* Add Manual Log Modal */}
+      {isAddingManual && (
+        <div className="absolute inset-0 bg-black/40 rounded-2xl flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden animate-fade-in">
+            <div className="p-4 border-b border-industrial-border flex justify-between items-center bg-industrial-bg">
+              <h3 className="font-bold flex items-center gap-2"><Plus size={16} className="text-cyber-emerald" /> Inserir Batida Manual</h3>
+              <button onClick={() => setIsAddingManual(false)} className="text-industrial-muted hover:text-industrial-text"><X size={18}/></button>
+            </div>
+            <form onSubmit={handleAddManual} className="p-4 space-y-4">
+              <div className="bg-blue-50 text-blue-800 p-3 rounded-lg text-xs flex gap-2">
+                <AlertTriangle size={16} className="shrink-0" />
+                <p><strong>Aviso:</strong> Batidas manuais são registradas como editadas e requerem justificativa.</p>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-industrial-muted mb-1">Funcionário</label>
+                <select 
+                  required
+                  value={addEmployeeId}
+                  onChange={e => setAddEmployeeId(e.target.value)}
+                  className="w-full bg-industrial-bg border border-industrial-border rounded-lg p-2 text-sm focus:border-cyber-emerald focus:outline-none"
+                >
+                  <option value="">Selecione o funcionário...</option>
+                  {allEmployees.map(emp => (
+                    <option key={emp.id} value={emp.id}>{emp.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-industrial-muted mb-1">Data</label>
+                  <input type="date" required value={addDate} onChange={e => setAddDate(e.target.value)} className="w-full bg-industrial-bg border border-industrial-border rounded-lg p-2 text-sm focus:outline-none focus:border-cyber-emerald" />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-industrial-muted mb-1">Horário</label>
+                  <input type="time" required value={addTime} onChange={e => setAddTime(e.target.value)} className="w-full bg-industrial-bg border border-industrial-border rounded-lg p-2 text-sm focus:border-corporate-blue focus:outline-none" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-industrial-muted mb-1">Tipo de Batida</label>
+                <select 
+                  value={addType}
+                  onChange={e => setAddType(e.target.value)}
+                  className="w-full bg-industrial-bg border border-industrial-border rounded-lg p-2 text-sm focus:border-corporate-blue focus:outline-none"
+                >
+                  <option value="Entrada Manhã">Entrada Manhã</option>
+                  <option value="Saída Almoço">Saída Almoço</option>
+                  <option value="Entrada Tarde">Entrada Tarde</option>
+                  <option value="Saída Tarde">Saída Tarde</option>
+                  <option value="Batida Extra">Batida Extra</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-industrial-muted mb-1">Motivo / Justificativa</label>
+                <textarea required value={addReason} onChange={e => setAddReason(e.target.value)} placeholder="Ex: Esqueceu de registrar no celular" className="w-full bg-industrial-bg border border-industrial-border rounded-lg p-2 text-sm focus:outline-none focus:border-cyber-emerald min-h-[60px]" />
+              </div>
+              <button type="submit" className="w-full bg-cyber-emerald text-white py-2 rounded-xl font-bold hover:bg-opacity-90">
+                Inserir Registro
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
+

@@ -84,3 +84,11 @@ export interface Absence {
   created_at?: string;
   employees?: Employee;
 }
+
+export interface AdminUser {
+  id: string;
+  username: string;
+  password?: string;
+  role: 'total' | 'parcial' | 'convencional';
+  created_at?: string;
+}
