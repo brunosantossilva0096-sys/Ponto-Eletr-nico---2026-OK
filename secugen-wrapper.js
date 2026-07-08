@@ -7,20 +7,26 @@ import os from 'os';
 // Caminho para o SDK SecuGen FDx Pro
 // ============================================================
 const homedir = os.homedir();
-let SDK_PATH = path.join(process.cwd(), 'sdk');
+const possiblePaths = [
+  path.join(process.cwd(), 'sdk'),
+  path.join(homedir, 'Desktop', 'FDx SDK Pro for Windows v4.3.1'),
+  path.join(homedir, 'Downloads', 'FDx_SDK_Pro_Windows_v4.3.1_J1.21', 'FDx SDK Pro for Windows v4.3.1'),
+  path.join(homedir, 'Downloads', 'FDx SDK Pro for Windows v4.3.1'),
+  'C:\\Users\\bruno\\Desktop\\FDx SDK Pro for Windows v4.3.1'
+];
 
-if (!fs.existsSync(path.join(SDK_PATH, 'bin', 'x64', 'sgfplib.dll'))) {
-  SDK_PATH = path.join(homedir, 'Desktop', 'FDx SDK Pro for Windows v4.3.1');
+let SDK_PATH = '';
+for (const p of possiblePaths) {
+  const checkPath = path.join(p, 'bin', 'x64', 'sgfplib.dll');
+  console.log(`[SecuGen] Verificando caminho: ${checkPath} -> ${fs.existsSync(checkPath) ? 'EXISTE' : 'NÃO EXISTE'}`);
+  if (fs.existsSync(checkPath)) {
+    SDK_PATH = p;
+    break;
+  }
 }
-if (!fs.existsSync(path.join(SDK_PATH, 'bin', 'x64', 'sgfplib.dll'))) {
-  SDK_PATH = path.join(homedir, 'Downloads', 'FDx_SDK_Pro_Windows_v4.3.1_J1.21', 'FDx SDK Pro for Windows v4.3.1');
-}
-if (!fs.existsSync(path.join(SDK_PATH, 'bin', 'x64', 'sgfplib.dll'))) {
-  SDK_PATH = path.join(homedir, 'Downloads', 'FDx SDK Pro for Windows v4.3.1');
-}
-if (!fs.existsSync(path.join(SDK_PATH, 'bin', 'x64', 'sgfplib.dll'))) {
-  // Fallback para o caminho absoluto original do Bruno
-  SDK_PATH = 'C:\\Users\\bruno\\Desktop\\FDx SDK Pro for Windows v4.3.1';
+
+if (!SDK_PATH) {
+  SDK_PATH = possiblePaths[0];
 }
 
 const DLL_PATH = path.join(SDK_PATH, 'bin', 'x64');

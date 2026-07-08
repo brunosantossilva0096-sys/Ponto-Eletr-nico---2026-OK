@@ -61,12 +61,12 @@ export const AdminReports = ({ loggedAdmin }: { loggedAdmin: AdminUser }) => {
   });
 
   const handleExportCSV = () => {
-    let csv = 'Data,Hora,Tipo,Funcionario,Empresa,CPF,Metodo,Distancia(m),Lat,Lng,Hash,Editado,MotivoEdicao\n';
+    let csv = 'Data,Hora,Tipo,Funcionario,Empresa,CPF,Metodo,Distancia(m),Lat,Lng,Hash,Editado/Manual,MotivoEdicao\n';
     filtered.forEach(log => {
       const d = new Date(log.timestamp);
       const dateStr = d.toLocaleDateString('pt-BR');
       const timeStr = d.toLocaleTimeString('pt-BR');
-      csv += `${dateStr},${timeStr},${log.type || 'Batida'},${log.employees.name},${log.employees.companies?.name || 'Sem Empresa'},${log.employees.cpf},${log.verification_method},${log.distance ? Math.round(log.distance) : ''},${log.latitude || ''},${log.longitude || ''},${log.hash_assinatura},${log.is_edited ? 'Sim' : 'Não'},${log.edit_reason || ''}\n`;
+      csv += `${dateStr},${timeStr},${log.type || 'Batida'},${log.employees.name},${log.employees.companies?.name || 'Sem Empresa'},${log.employees.cpf},${log.verification_method},${log.distance ? Math.round(log.distance) : ''},${log.latitude || ''},${log.longitude || ''},${log.hash_assinatura},${log.is_manual ? 'Manual' : log.is_edited ? 'Sim' : 'Não'},${log.edit_reason || ''}\n`;
     });
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
@@ -203,6 +203,7 @@ export const AdminReports = ({ loggedAdmin }: { loggedAdmin: AdminUser }) => {
       verification_method: 'Manual (Admin)',
       hash_assinatura: hashStr,
       is_edited: true,
+      is_manual: true,
       original_timestamp: newTimestamp,
       edit_reason: 'Inserção Manual: ' + addReason,
       distance: null,
@@ -291,11 +292,11 @@ export const AdminReports = ({ loggedAdmin }: { loggedAdmin: AdminUser }) => {
           </thead>
           <tbody className="divide-y divide-industrial-border">
             {filtered.map(log => (
-              <tr key={log.id} className={`hover:bg-industrial-bg/50 ${log.is_edited ? 'bg-orange-50/50' : ''}`}>
+              <tr key={log.id} className={`hover:bg-industrial-bg/50 ${log.is_manual ? 'bg-blue-50/50' : log.is_edited ? 'bg-orange-50/50' : ''}`}>
                 <td className="p-3">
                   <span className="font-semibold block">{new Date(log.timestamp).toLocaleDateString('pt-BR')}</span>
                   <span className="text-industrial-muted text-xs">{new Date(log.timestamp).toLocaleTimeString('pt-BR')}</span>
-                  {log.is_edited && <span className="text-[10px] text-orange-600 font-bold uppercase tracking-wider block mt-1">Editado / Manual</span>}
+                  {log.is_manual ? <span className="text-[10px] text-blue-600 font-bold uppercase tracking-wider block mt-1">Manual</span> : log.is_edited ? <span className="text-[10px] text-orange-600 font-bold uppercase tracking-wider block mt-1">Editado</span> : null}
                 </td>
                 <td className="p-3">
                   <span className={`px-2 py-1 rounded-md text-xs font-semibold ${

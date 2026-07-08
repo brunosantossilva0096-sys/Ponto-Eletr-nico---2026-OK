@@ -268,11 +268,11 @@ export const EmployeeReports = ({ employee, onBack, isAdmin = false }: { employe
             </thead>
             <tbody className="divide-y divide-industrial-border">
               {filtered.map(log => (
-                <tr key={log.id} className={`hover:bg-industrial-bg/50 ${log.is_edited ? 'bg-orange-50/50' : ''}`}>
+                <tr key={log.id} className={`hover:bg-industrial-bg/50 ${log.is_manual ? 'bg-blue-50/50' : log.is_edited ? 'bg-orange-50/50' : ''}`}>
                   <td className="p-3">
                     <span className="font-semibold block">{new Date(log.timestamp).toLocaleDateString('pt-BR')}</span>
                     <span className="text-industrial-muted text-xs">{new Date(log.timestamp).toLocaleTimeString('pt-BR')}</span>
-                    {log.is_edited && <span className="text-[10px] text-orange-600 font-bold uppercase tracking-wider block mt-1">Editado</span>}
+                    {log.is_manual ? <span className="text-[10px] text-blue-600 font-bold uppercase tracking-wider block mt-1">Manual</span> : log.is_edited ? <span className="text-[10px] text-orange-600 font-bold uppercase tracking-wider block mt-1">Editado</span> : null}
                   </td>
                   <td className="p-3">
                     <span className={`px-2 py-1 rounded-md text-xs font-semibold ${

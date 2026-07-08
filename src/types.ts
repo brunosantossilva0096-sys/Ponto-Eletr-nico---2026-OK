@@ -61,6 +61,7 @@ export interface TimeLog {
   
   // Auditoria
   is_edited?: boolean;
+  is_manual?: boolean;
   original_timestamp?: string | null;
   edit_reason?: string | null;
 }
