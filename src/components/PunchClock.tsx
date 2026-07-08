@@ -90,6 +90,15 @@ export const PunchClock = ({ employee, onBack }: { employee: Employee, onBack: (
     
     const instruction = getAuthInstruction();
     
+    const isMobile = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+    if (!isMobile) {
+      // Ignora GPS no PC (usa apenas o leitor biométrico ou senha)
+      setStatus('ready');
+      setMessage(instruction);
+      return;
+    }
+
     if (!employee.allowed_lat || !employee.allowed_lng) {
       // Se o admin não configurou, permite de qualquer lugar (fallback)
       setStatus('ready');
