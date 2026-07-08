@@ -1,11 +1,28 @@
 import koffi from 'koffi';
 import path from 'path';
 import fs from 'fs';
+import os from 'os';
 
 // ============================================================
 // Caminho para o SDK SecuGen FDx Pro
 // ============================================================
-const SDK_PATH = 'C:\\Users\\bruno\\Downloads\\FDx_SDK_Pro_Windows_v4.3.1_J1.21\\FDx SDK Pro for Windows v4.3.1';
+const homedir = os.homedir();
+let SDK_PATH = path.join(process.cwd(), 'sdk');
+
+if (!fs.existsSync(path.join(SDK_PATH, 'bin', 'x64', 'sgfplib.dll'))) {
+  SDK_PATH = path.join(homedir, 'Desktop', 'FDx SDK Pro for Windows v4.3.1');
+}
+if (!fs.existsSync(path.join(SDK_PATH, 'bin', 'x64', 'sgfplib.dll'))) {
+  SDK_PATH = path.join(homedir, 'Downloads', 'FDx_SDK_Pro_Windows_v4.3.1_J1.21', 'FDx SDK Pro for Windows v4.3.1');
+}
+if (!fs.existsSync(path.join(SDK_PATH, 'bin', 'x64', 'sgfplib.dll'))) {
+  SDK_PATH = path.join(homedir, 'Downloads', 'FDx SDK Pro for Windows v4.3.1');
+}
+if (!fs.existsSync(path.join(SDK_PATH, 'bin', 'x64', 'sgfplib.dll'))) {
+  // Fallback para o caminho absoluto original do Bruno
+  SDK_PATH = 'C:\\Users\\bruno\\Desktop\\FDx SDK Pro for Windows v4.3.1';
+}
+
 const DLL_PATH = path.join(SDK_PATH, 'bin', 'x64');
 const DLL_FILE = path.join(DLL_PATH, 'sgfplib.dll');
 

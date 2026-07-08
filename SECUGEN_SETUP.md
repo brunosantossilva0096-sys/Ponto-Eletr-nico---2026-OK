@@ -27,6 +27,20 @@ A implementação atual funciona em **modo de simulação** para desenvolvimento
 2. Instale o SDK seguindo as instruções do instalador
 3. Anote o caminho de instalação (geralmente `C:\Program Files\SecuGen\FDx SDK Pro`)
 
+## Instalação Simplificada em Outro Computador
+
+Para rodar este projeto em outro computador Windows (64-bit), você não precisa baixar os arquivos manualmente ou alterar o código:
+
+1. **Copie a pasta inteira do projeto** para o novo computador.
+2. Certifique-se de que a pasta contém as subpastas `drivers/` (com o instalador `sgdrvsetupu20x64.msi`) e `sdk/bin/x64/` (com as DLLs).
+3. Dê um duplo-clique no arquivo **`install-secugen.bat`** localizado na raiz do projeto.
+4. O script irá:
+   * Solicitar privilégios de administrador (necessários para instalar drivers).
+   * Verificar se o Node.js está instalado.
+   * Executar `npm install` para instalar todas as dependências locais.
+   * Instalar os drivers do leitor biométrico SecuGen U20 automaticamente.
+5. Conecte o leitor USB e rode `npm run server` para iniciar.
+
 ## Configuração do Backend para Uso Real
 
 ### Passo 1: Modificar o server.js
