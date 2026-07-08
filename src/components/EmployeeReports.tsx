@@ -4,6 +4,7 @@ import { TimeLog, Employee } from '../types';
 import { Download, FileText, ArrowLeft, Clock, Edit2, Trash2, X, Calculator } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import { calculateTimeBank, formatHours, formatHoursNeutral } from '../utils/timeBank';
+import { generateAbsences } from '../utils/faltas';
 
 export const EmployeeReports = ({ employee, onBack, isAdmin = false }: { employee: Employee, onBack: () => void, isAdmin?: boolean }) => {
   const [logs, setLogs] = useState<TimeLog[]>([]);
@@ -26,12 +27,15 @@ export const EmployeeReports = ({ employee, onBack, isAdmin = false }: { employe
     fetchLogs();
   }, [employee.id]);
 
-  const filtered = logs.filter(l => {
+  const baseFiltered = logs.filter(l => {
     const logDate = l.timestamp.split('T')[0];
     if (startDate && logDate < startDate) return false;
     if (endDate && logDate > endDate) return false;
     return true;
   });
+
+  const generatedAbsences = generateAbsences(logs, [employee], startDate, endDate);
+  const filtered = [...baseFiltered, ...generatedAbsences].sort((a, b) => b.timestamp.localeCompare(a.timestamp));
 
   const timeBankReport = calculateTimeBank(employee, logs, startDate, endDate);
 
@@ -91,14 +95,20 @@ export const EmployeeReports = ({ employee, onBack, isAdmin = false }: { employe
     doc.text(`CPF: ${employee.cpf}`, 14, 32);
     if (employee.companies?.name) {
       doc.text(`Empresa: ${employee.companies.name}`, 14, 37);
+      if (employee.companies?.cnpj) {
+        doc.text(`CNPJ: ${employee.companies.cnpj}`, 14, 42);
+      }
     }
-    doc.text(`Gerado em: ${new Date().toLocaleString('pt-BR')}`, 14, 42);
+    
+    let currentY = employee.companies?.cnpj ? 47 : 42;
+    doc.text(`Gerado em: ${new Date().toLocaleString('pt-BR')}`, 14, currentY);
     
     if (startDate || endDate) {
-      doc.text(`Período: ${startDate ? new Date(startDate + 'T00:00:00').toLocaleDateString('pt-BR') : 'Início'} até ${endDate ? new Date(endDate + 'T00:00:00').toLocaleDateString('pt-BR') : 'Fim'}`, 14, 47);
+      currentY += 5;
+      doc.text(`Período: ${startDate ? new Date(startDate + 'T00:00:00').toLocaleDateString('pt-BR') : 'Início'} até ${endDate ? new Date(endDate + 'T00:00:00').toLocaleDateString('pt-BR') : 'Fim'}`, 14, currentY);
     }
     
-    let y = 55;
+    let y = currentY + 8;
 
     if (timeBankReport) {
       doc.setFont('Helvetica', 'bold');
@@ -140,7 +150,9 @@ export const EmployeeReports = ({ employee, onBack, isAdmin = false }: { employe
       }
       
       const dateVal = new Date(log.timestamp);
-      const dateTimeStr = `${dateVal.toLocaleDateString('pt-BR')} ${dateVal.toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'})}`;
+      const dateTimeStr = log.isFalta 
+        ? dateVal.toLocaleDateString('pt-BR') 
+        : `${dateVal.toLocaleDateString('pt-BR')} ${dateVal.toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'})}`;
       const typeStr = log.type || 'Batida';
       const methodStr = log.verification_method || '';
       const gpsStr = log.distance ? `${Math.round(log.distance)}m` : 'Sem GPS';
@@ -268,14 +280,15 @@ export const EmployeeReports = ({ employee, onBack, isAdmin = false }: { employe
             </thead>
             <tbody className="divide-y divide-industrial-border">
               {filtered.map(log => (
-                <tr key={log.id} className={`hover:bg-industrial-bg/50 ${log.is_manual ? 'bg-blue-50/50' : log.is_edited ? 'bg-orange-50/50' : ''}`}>
+                <tr key={log.id} className={`hover:bg-industrial-bg/50 ${log.isFalta ? 'bg-red-50/80' : log.is_manual ? 'bg-blue-50/50' : log.is_edited ? 'bg-orange-50/50' : ''}`}>
                   <td className="p-3">
                     <span className="font-semibold block">{new Date(log.timestamp).toLocaleDateString('pt-BR')}</span>
-                    <span className="text-industrial-muted text-xs">{new Date(log.timestamp).toLocaleTimeString('pt-BR')}</span>
-                    {log.is_manual ? <span className="text-[10px] text-blue-600 font-bold uppercase tracking-wider block mt-1">Manual</span> : log.is_edited ? <span className="text-[10px] text-orange-600 font-bold uppercase tracking-wider block mt-1">Editado</span> : null}
+                    {!log.isFalta && <span className="text-industrial-muted text-xs">{new Date(log.timestamp).toLocaleTimeString('pt-BR')}</span>}
+                    {log.isFalta ? <span className="text-[10px] text-red-600 font-bold uppercase tracking-wider block mt-1">Falta</span> : log.is_manual ? <span className="text-[10px] text-blue-600 font-bold uppercase tracking-wider block mt-1">Manual</span> : log.is_edited ? <span className="text-[10px] text-orange-600 font-bold uppercase tracking-wider block mt-1">Editado</span> : null}
                   </td>
                   <td className="p-3">
                     <span className={`px-2 py-1 rounded-md text-xs font-semibold ${
+                      log.isFalta ? 'bg-red-100 text-red-600' :
                       log.type === 'Entrada Manhã' ? 'bg-cyber-emerald/10 text-cyber-emerald' :
                       log.type === 'Saída Almoço' ? 'bg-orange-50 text-orange-500' :
                       log.type === 'Entrada Tarde' ? 'bg-blue-50 text-corporate-blue' :
@@ -300,14 +313,16 @@ export const EmployeeReports = ({ employee, onBack, isAdmin = false }: { employe
                   </td>
                   {isAdmin && (
                     <td className="p-3 text-right">
-                      <div className="flex justify-end gap-2">
-                        <button onClick={() => openEdit(log)} className="p-1.5 text-industrial-muted hover:text-corporate-blue bg-white border border-industrial-border rounded-lg transition-colors" title="Editar">
-                          <Edit2 size={14} />
-                        </button>
-                        <button onClick={() => handleDelete(log.id)} className="p-1.5 text-industrial-muted hover:text-red-500 bg-white border border-industrial-border rounded-lg transition-colors" title="Excluir">
-                          <Trash2 size={14} />
-                        </button>
-                      </div>
+                      {!log.isFalta && (
+                        <div className="flex justify-end gap-2">
+                          <button onClick={() => openEdit(log)} className="p-1.5 text-industrial-muted hover:text-corporate-blue bg-white border border-industrial-border rounded-lg transition-colors" title="Editar">
+                            <Edit2 size={14} />
+                          </button>
+                          <button onClick={() => handleDelete(log.id)} className="p-1.5 text-industrial-muted hover:text-red-500 bg-white border border-industrial-border rounded-lg transition-colors" title="Excluir">
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      )}
                     </td>
                   )}
                 </tr>

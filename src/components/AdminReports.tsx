@@ -3,7 +3,7 @@ import { supabase } from '../supabaseClient';
 import { TimeLog, Employee, AdminUser } from '../types';
 import { Download, Search, Clock, Pencil, Trash2, X, AlertTriangle, FileText, Plus } from 'lucide-react';
 import { jsPDF } from 'jspdf';
-
+import { generateAbsences } from '../utils/faltas';
 export const AdminReports = ({ loggedAdmin }: { loggedAdmin: AdminUser }) => {
   const [logs, setLogs] = useState<(TimeLog & { employees: Employee })[]>([]);
   const [allEmployees, setAllEmployees] = useState<Employee[]>([]);
@@ -29,14 +29,14 @@ export const AdminReports = ({ loggedAdmin }: { loggedAdmin: AdminUser }) => {
   const fetchLogs = async () => {
     const { data } = await supabase
       .from('time_logs')
-      .select('*, employees(*)')
+      .select('*, employees(*, companies(*))')
       .order('timestamp', { ascending: false });
     
     if (data) setLogs(data as any);
   };
 
   const fetchEmployees = async () => {
-    const { data } = await supabase.from('employees').select('*').order('name');
+    const { data } = await supabase.from('employees').select('*, companies(*)').order('name');
     if (data) setAllEmployees(data);
   };
 
@@ -45,7 +45,14 @@ export const AdminReports = ({ loggedAdmin }: { loggedAdmin: AdminUser }) => {
     fetchEmployees();
   }, []);
 
-  const filtered = logs.filter(l => {
+  const searchedEmployees = allEmployees.filter(emp => {
+    if (!search) return true;
+    return emp.name.toLowerCase().includes(search.toLowerCase()) || 
+           emp.cpf.includes(search) ||
+           emp.companies?.name?.toLowerCase().includes(search.toLowerCase());
+  });
+
+  const baseFilteredLogs = logs.filter(l => {
     const matchesSearch = 
       l.employees?.name?.toLowerCase().includes(search.toLowerCase()) || 
       l.employees?.cpf?.includes(search) ||
@@ -59,6 +66,10 @@ export const AdminReports = ({ loggedAdmin }: { loggedAdmin: AdminUser }) => {
 
     return true;
   });
+
+  const generatedAbsences = generateAbsences(logs, searchedEmployees, startDate, endDate);
+  
+  const filtered = [...baseFilteredLogs, ...generatedAbsences].sort((a, b) => b.timestamp.localeCompare(a.timestamp));
 
   const handleExportCSV = () => {
     let csv = 'Data,Hora,Tipo,Funcionario,Empresa,CPF,Metodo,Distancia(m),Lat,Lng,Hash,Editado/Manual,MotivoEdicao\n';
@@ -85,14 +96,30 @@ export const AdminReports = ({ loggedAdmin }: { loggedAdmin: AdminUser }) => {
     
     doc.setFont('Helvetica', 'normal');
     doc.setFontSize(10);
-    doc.text(`Gerado em: ${new Date().toLocaleString('pt-BR')}`, 14, 27);
-    if (startDate || endDate) {
-      doc.text(`Período: ${startDate ? new Date(startDate + 'T00:00:00').toLocaleDateString('pt-BR') : 'Início'} até ${endDate ? new Date(endDate + 'T00:00:00').toLocaleDateString('pt-BR') : 'Fim'}`, 14, 32);
+    const uniqueCompanies = Array.from(new Set(filtered.map(l => l.employees?.companies?.id).filter(Boolean)));
+    const companiesData = uniqueCompanies.map(id => filtered.find(l => l.employees?.companies?.id === id)?.employees?.companies);
+
+    let currentY = 27;
+    doc.text(`Gerado em: ${new Date().toLocaleString('pt-BR')}`, 14, currentY);
+    
+    if (companiesData.length === 1 && companiesData[0]) {
+      currentY += 5;
+      doc.text(`Empresa: ${companiesData[0].name}`, 14, currentY);
+      if (companiesData[0].cnpj) {
+        currentY += 5;
+        doc.text(`CNPJ: ${companiesData[0].cnpj}`, 14, currentY);
+      }
     }
     
-    doc.line(14, 35, 196, 35);
+    if (startDate || endDate) {
+      currentY += 5;
+      doc.text(`Período: ${startDate ? new Date(startDate + 'T00:00:00').toLocaleDateString('pt-BR') : 'Início'} até ${endDate ? new Date(endDate + 'T00:00:00').toLocaleDateString('pt-BR') : 'Fim'}`, 14, currentY);
+    }
     
-    let y = 43;
+    currentY += 3;
+    doc.line(14, currentY, 196, currentY);
+    
+    let y = currentY + 8;
     
     doc.setFont('Helvetica', 'bold');
     doc.text('Data/Hora', 14, y);
@@ -123,7 +150,9 @@ export const AdminReports = ({ loggedAdmin }: { loggedAdmin: AdminUser }) => {
       }
       
       const dateVal = new Date(log.timestamp);
-      const dateTimeStr = `${dateVal.toLocaleDateString('pt-BR')} ${dateVal.toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'})}`;
+      const dateTimeStr = log.isFalta 
+        ? dateVal.toLocaleDateString('pt-BR') 
+        : `${dateVal.toLocaleDateString('pt-BR')} ${dateVal.toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'})}`;
       const typeStr = log.type || 'Batida';
       const nameStr = log.employees?.name || '';
       const compStr = log.employees?.companies?.name || '';
@@ -293,14 +322,15 @@ export const AdminReports = ({ loggedAdmin }: { loggedAdmin: AdminUser }) => {
           </thead>
           <tbody className="divide-y divide-industrial-border">
             {filtered.map(log => (
-              <tr key={log.id} className={`hover:bg-industrial-bg/50 ${log.is_manual ? 'bg-blue-50/50' : log.is_edited ? 'bg-orange-50/50' : ''}`}>
+              <tr key={log.id} className={`hover:bg-industrial-bg/50 ${log.isFalta ? 'bg-red-50/80' : log.is_manual ? 'bg-blue-50/50' : log.is_edited ? 'bg-orange-50/50' : ''}`}>
                 <td className="p-3">
                   <span className="font-semibold block">{new Date(log.timestamp).toLocaleDateString('pt-BR')}</span>
-                  <span className="text-industrial-muted text-xs">{new Date(log.timestamp).toLocaleTimeString('pt-BR')}</span>
-                  {log.is_manual ? <span className="text-[10px] text-blue-600 font-bold uppercase tracking-wider block mt-1">Manual</span> : log.is_edited ? <span className="text-[10px] text-orange-600 font-bold uppercase tracking-wider block mt-1">Editado</span> : null}
+                  {!log.isFalta && <span className="text-industrial-muted text-xs">{new Date(log.timestamp).toLocaleTimeString('pt-BR')}</span>}
+                  {log.isFalta ? <span className="text-[10px] text-red-600 font-bold uppercase tracking-wider block mt-1">Falta</span> : log.is_manual ? <span className="text-[10px] text-blue-600 font-bold uppercase tracking-wider block mt-1">Manual</span> : log.is_edited ? <span className="text-[10px] text-orange-600 font-bold uppercase tracking-wider block mt-1">Editado</span> : null}
                 </td>
                 <td className="p-3">
                   <span className={`px-2 py-1 rounded-md text-xs font-semibold ${
+                    log.isFalta ? 'bg-red-100 text-red-600' :
                     log.type === 'Entrada Manhã' ? 'bg-cyber-emerald/10 text-cyber-emerald' :
                     log.type === 'Saída Almoço' ? 'bg-orange-50 text-orange-500' :
                     log.type === 'Entrada Tarde' ? 'bg-blue-50 text-corporate-blue' :
@@ -330,12 +360,16 @@ export const AdminReports = ({ loggedAdmin }: { loggedAdmin: AdminUser }) => {
                 </td>
                 {loggedAdmin.role !== 'convencional' && (
                   <td className="p-3 text-right whitespace-nowrap">
-                    <button onClick={() => openEdit(log)} className="text-corporate-blue hover:text-blue-800 p-1 mr-1" title="Editar">
-                      <Pencil size={16} />
-                    </button>
-                    <button onClick={() => handleDelete(log.id)} className="text-red-500 hover:text-red-700 p-1" title="Excluir">
-                      <Trash2 size={16} />
-                    </button>
+                    {!log.isFalta && (
+                      <>
+                        <button onClick={() => openEdit(log)} className="text-corporate-blue hover:text-blue-800 p-1 mr-1" title="Editar">
+                          <Pencil size={16} />
+                        </button>
+                        <button onClick={() => handleDelete(log.id)} className="text-red-500 hover:text-red-700 p-1" title="Excluir">
+                          <Trash2 size={16} />
+                        </button>
+                      </>
+                    )}
                   </td>
                 )}
               </tr>

@@ -64,6 +64,7 @@ export interface TimeLog {
   is_manual?: boolean;
   original_timestamp?: string | null;
   edit_reason?: string | null;
+  isFalta?: boolean; // Propriedade sintética para exibição na UI
 }
 
 export interface Holiday {
