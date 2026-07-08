@@ -122,7 +122,7 @@ export const PunchClock = ({ employee, onBack }: { employee: Employee, onBack: (
       const dist = calculateDistance(lat, lng, employee.allowed_lat!, employee.allowed_lng!);
       setCurrentCoords({ lat, lng });
       
-      if (dist <= employee.allowed_radius) {
+      if (employee.allowed_radius === 0 || dist <= employee.allowed_radius) {
         setStatus('ready');
         setMessage(`Localização confirmada!\nEndereço: ${resolvedAddress}\n\n${instruction}`);
       } else {
