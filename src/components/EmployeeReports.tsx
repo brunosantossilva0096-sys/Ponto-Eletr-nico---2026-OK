@@ -150,7 +150,7 @@ export const EmployeeReports = ({ employee, onBack, isAdmin = false }: { employe
       }
       
       const dateVal = new Date(log.timestamp);
-      const dateTimeStr = log.isFalta 
+      const dateTimeStr = (log.isFalta || log.type?.startsWith('Falta'))
         ? dateVal.toLocaleDateString('pt-BR') 
         : `${dateVal.toLocaleDateString('pt-BR')} ${dateVal.toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'})}`;
       const typeStr = log.type || 'Batida';
@@ -282,13 +282,13 @@ export const EmployeeReports = ({ employee, onBack, isAdmin = false }: { employe
               {filtered.map(log => (
                 <tr key={log.id} className={`hover:bg-industrial-bg/50 ${log.isFalta ? 'bg-red-50/80' : log.is_manual ? 'bg-blue-50/50' : log.is_edited ? 'bg-orange-50/50' : ''}`}>
                   <td className="p-3">
-                    <span className="font-semibold block">{new Date(log.timestamp).toLocaleDateString('pt-BR')}</span>
-                    {!log.isFalta && <span className="text-industrial-muted text-xs">{new Date(log.timestamp).toLocaleTimeString('pt-BR')}</span>}
-                    {log.isFalta ? <span className="text-[10px] text-red-600 font-bold uppercase tracking-wider block mt-1">Falta</span> : log.is_manual ? <span className="text-[10px] text-blue-600 font-bold uppercase tracking-wider block mt-1">Manual</span> : log.is_edited ? <span className="text-[10px] text-orange-600 font-bold uppercase tracking-wider block mt-1">Editado</span> : null}
-                  </td>
+                  <span className="font-semibold block">{new Date(log.timestamp).toLocaleDateString('pt-BR')}</span>
+                  {!(log.isFalta || log.type?.startsWith('Falta')) && <span className="text-industrial-muted text-xs">{new Date(log.timestamp).toLocaleTimeString('pt-BR')}</span>}
+                  {log.isFalta ? <span className="text-[10px] text-red-600 font-bold uppercase tracking-wider block mt-1">Falta</span> : log.is_manual ? <span className="text-[10px] text-blue-600 font-bold uppercase tracking-wider block mt-1">Manual</span> : log.is_edited ? <span className="text-[10px] text-orange-600 font-bold uppercase tracking-wider block mt-1">Editado</span> : null}
+                </td>
                   <td className="p-3">
-                    <span className={`px-2 py-1 rounded-md text-xs font-semibold ${
-                      log.isFalta ? 'bg-red-100 text-red-600' :
+                  <span className={`px-2 py-1 rounded-md text-xs font-semibold ${
+                    (log.isFalta || log.type?.startsWith('Falta')) ? 'bg-red-100 text-red-600' :
                       log.type === 'Entrada Manhã' ? 'bg-cyber-emerald/10 text-cyber-emerald' :
                       log.type === 'Saída Almoço' ? 'bg-orange-50 text-orange-500' :
                       log.type === 'Entrada Tarde' ? 'bg-blue-50 text-corporate-blue' :
@@ -384,6 +384,8 @@ export const EmployeeReports = ({ employee, onBack, isAdmin = false }: { employe
                   <option value="Entrada Tarde">Entrada Tarde</option>
                   <option value="Saída Tarde">Saída Tarde</option>
                   <option value="Batida Extra">Batida Extra</option>
+                  <option value="Falta">Falta (Dia Inteiro)</option>
+                  <option value="Falta Meio Expediente">Falta Meio Expediente</option>
                 </select>
               </div>
               <div>
