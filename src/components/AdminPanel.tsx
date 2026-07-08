@@ -217,6 +217,7 @@ export const AdminPanel = ({ loggedAdmin, onLogout }: { loggedAdmin: AdminUser, 
     setWeeklyHours(44);
     setScheduleType('standard');
     setCustomSchedule(DEFAULT_CUSTOM);
+    setRadius(100);
   };
 
   const handleEdit = (emp: Employee) => {
@@ -228,7 +229,7 @@ export const AdminPanel = ({ loggedAdmin, onLogout }: { loggedAdmin: AdminUser, 
     setPin(emp.pin || '');
     setAuthMethod(emp.auth_method || 'both');
     setCompanyId(emp.company_id || '');
-    setRadius(emp.allowed_radius || 100);
+    setRadius(emp.allowed_radius !== null && emp.allowed_radius !== undefined ? emp.allowed_radius : 100);
     setWorkStart(emp.work_start || '');
     setBreakStart(emp.break_start || '');
     setBreakEnd(emp.break_end || '');
@@ -485,7 +486,7 @@ export const AdminPanel = ({ loggedAdmin, onLogout }: { loggedAdmin: AdminUser, 
               </div>
               <div>
                 <label className="block text-xs font-semibold text-industrial-muted mb-1">Raio GPS (m)</label>
-                <input type="number" value={radius} onChange={e => setRadius(Number(e.target.value))} className="w-full bg-industrial-bg border border-industrial-border rounded-lg p-2 text-sm focus:outline-none focus:border-cyber-emerald transition-colors" />
+                <input type="number" value={radius} onChange={e => setRadius(e.target.value === '' ? 0 : Number(e.target.value))} className="w-full bg-industrial-bg border border-industrial-border rounded-lg p-2 text-sm focus:outline-none focus:border-cyber-emerald transition-colors" />
               </div>
 
               <div className="col-span-2">
