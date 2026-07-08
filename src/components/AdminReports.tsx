@@ -216,7 +216,8 @@ export const AdminReports = ({ loggedAdmin }: { loggedAdmin: AdminUser }) => {
     const { error } = await supabase.from('time_logs').insert([log]);
     
     if (error) {
-      alert('Erro ao salvar no servidor. Verifique sua conexão.');
+      alert('Erro ao salvar no servidor. Verifique sua conexão: ' + error.message);
+      console.error('Erro na inserção manual:', error);
     } else {
       setIsAddingManual(false);
       setAddDate('');
