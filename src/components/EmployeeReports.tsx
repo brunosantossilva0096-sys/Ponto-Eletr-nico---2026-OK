@@ -226,6 +226,34 @@ export const EmployeeReports = ({ employee, onBack, isAdmin = false }: { employe
           </div>
         )}
 
+        {timeBankReport && timeBankReport.daily && timeBankReport.daily.length > 0 && (
+          <div className="mb-6 bg-industrial-bg/30 rounded-xl border border-industrial-border overflow-hidden">
+            <div className="bg-industrial-bg px-4 py-2 border-b border-industrial-border font-bold text-sm text-industrial-text">Saldo por Dia</div>
+            <div className="p-4 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3 max-h-[160px] overflow-y-auto custom-scrollbar">
+              {timeBankReport.daily.map(day => (
+                <div key={day.date} className="bg-white text-sm p-3 rounded-lg border border-industrial-border shadow-sm">
+                  <p className="font-bold mb-1 text-industrial-text">{new Date(`${day.date}T12:00:00`).toLocaleDateString('pt-BR')}</p>
+                  
+                  {day.logs && day.logs.length > 0 && (
+                    <div className="text-[10px] text-industrial-muted mb-2 bg-industrial-bg p-1.5 rounded flex flex-wrap gap-1">
+                      {day.logs.map((l: any, i: number) => (
+                        <span key={l.id} className="font-mono bg-white px-1 border border-industrial-border rounded">
+                          {new Date(l.timestamp).toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'})}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  <p className="text-xs text-industrial-muted mb-1">Trab: {formatHoursNeutral(day.worked)} | Esp: {formatHoursNeutral(day.expected)}</p>
+                  <p className={`text-xs font-bold ${day.balance >= 0 ? 'text-cyber-emerald' : 'text-red-600'}`}>
+                    Saldo: {formatHours(day.balance)}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div className="flex-1 overflow-auto border border-industrial-border rounded-xl">
           <table className="w-full text-left text-sm">
             <thead className="bg-industrial-bg text-industrial-muted sticky top-0">
