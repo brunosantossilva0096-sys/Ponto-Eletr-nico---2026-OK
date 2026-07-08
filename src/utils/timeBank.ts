@@ -27,13 +27,39 @@ export const calculateTimeBank = (employee: Employee | null, logs: TimeLog[], st
   const isHoliday = (dateStr: string) => holidays.some(h => h.date === dateStr);
   const isAbsence = (dateStr: string) => absences.some(a => dateStr >= a.start_date && dateStr <= a.end_date);
   
-  // Calculate worked hours per day
-  Object.keys(logsByDate).forEach(date => {
-    const dayLogs = logsByDate[date].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+  const start = new Date(`${startDateStr}T00:00:00`);
+  const end = new Date(`${endDateStr}T23:59:59`);
+  const current = new Date(start);
+  const today = new Date();
+  today.setHours(0,0,0,0);
+  
+  while (current <= end) {
+    const dateStr = current.getFullYear() + '-' + String(current.getMonth() + 1).padStart(2, '0') + '-' + String(current.getDate()).padStart(2, '0');
+    const dayOfWeek = current.getDay();
+    
+    // 1. Calculate Expected Minutes (Standard or Custom)
+    let expectedMinutesPerDay = 0;
+    if (employee.schedule_type === 'custom' && employee.custom_schedule) {
+      const schedule = employee.custom_schedule[dayOfWeek];
+      if (schedule?.active) {
+        const workMins = calcMinutes(schedule.work_start, schedule.break_start) + calcMinutes(schedule.break_end, schedule.work_end);
+        const fallback = Math.round((employee.weekly_hours || 44) / Object.values(employee.custom_schedule).filter((s: any) => s.active).length * 60);
+        expectedMinutesPerDay = workMins > 0 ? workMins : fallback;
+      }
+    } else {
+      if (!employee.work_days || employee.work_days.includes(dayOfWeek)) {
+        const workMins = calcMinutes(employee.work_start, employee.break_start) + calcMinutes(employee.break_end, employee.work_end);
+        const activeDaysPerWeek = employee.work_days ? employee.work_days.length : 5;
+        const fallback = activeDaysPerWeek > 0 ? Math.round((employee.weekly_hours || 44) / activeDaysPerWeek * 60) : 0;
+        expectedMinutesPerDay = workMins > 0 ? workMins : fallback;
+      }
+    }
+    
+    // 2. Calculate Worked Minutes
     let workedInDay = 0;
+    const dayLogs = logsByDate[dateStr] ? logsByDate[dateStr].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()) : [];
     
     if (dayLogs.length >= 2) {
-      // Tenta achar pares Entrada/Saida
       const entradas = dayLogs.filter(l => l.type.includes('Entrada'));
       const saidas = dayLogs.filter(l => l.type.includes('Saída'));
       
@@ -46,12 +72,10 @@ export const calculateTimeBank = (employee: Employee | null, logs: TimeLog[], st
            }
          }
       } else if (dayLogs.length === 2) {
-         // Fallback se o type nao ajudar
          const inTime = new Date(dayLogs[0].timestamp).getTime();
          const outTime = new Date(dayLogs[1].timestamp).getTime();
          workedInDay += (outTime - inTime) / (1000 * 60);
       } else if (dayLogs.length === 4) {
-         // Fallback padrao 4 batidas
          const in1 = new Date(dayLogs[0].timestamp).getTime();
          const out1 = new Date(dayLogs[1].timestamp).getTime();
          const in2 = new Date(dayLogs[2].timestamp).getTime();
@@ -61,75 +85,36 @@ export const calculateTimeBank = (employee: Employee | null, logs: TimeLog[], st
       }
     }
     
+    // 3. Apply Holiday and Abono Rules
+    if (isHoliday(dateStr)) {
+       // Holiday: expected is 0. Any worked hours are extra.
+       expectedMinutesPerDay = 0;
+    } else if (isAbsence(dateStr)) {
+       // Abono: Expected remains normal. But we "credit" the expected hours as worked.
+       if (workedInDay < expectedMinutesPerDay) {
+           workedInDay = expectedMinutesPerDay;
+       }
+    }
+    
     totalWorkedMinutes += workedInDay;
+    overallExpectedMinutes += expectedMinutesPerDay;
     
-    const dObj = new Date(`${date}T12:00:00`);
-    const dayOfWeek = dObj.getDay();
-    let isWorkDay = false;
-    let expectedMinutesPerDay = 0;
-    
-    if (employee.schedule_type === 'custom' && employee.custom_schedule) {
-      const schedule = employee.custom_schedule[dayOfWeek];
-      if (schedule?.active) {
-        isWorkDay = true;
-        const workMins = calcMinutes(schedule.work_start, schedule.break_start) + calcMinutes(schedule.break_end, schedule.work_end);
-        const fallback = Math.round((employee.weekly_hours || 44) / Object.values(employee.custom_schedule).filter((s: any) => s.active).length * 60);
-        expectedMinutesPerDay = workMins > 0 ? workMins : fallback;
-      }
-    } else {
-      if (!employee.work_days || employee.work_days.includes(dayOfWeek)) {
-        isWorkDay = true;
-        const workMins = calcMinutes(employee.work_start, employee.break_start) + calcMinutes(employee.break_end, employee.work_end);
-        const activeDaysPerWeek = employee.work_days ? employee.work_days.length : 5;
-        const fallback = activeDaysPerWeek > 0 ? Math.round((employee.weekly_hours || 44) / activeDaysPerWeek * 60) : 0;
-        expectedMinutesPerDay = workMins > 0 ? workMins : fallback;
-      }
+    // Only include in daily breakdown if there's log activity OR if it's a holiday/abono OR if it's a past workday.
+    // This makes the UI list much more transparent.
+    if (dayLogs.length > 0 || isAbsence(dateStr) || isHoliday(dateStr) || (expectedMinutesPerDay > 0 && current < today)) {
+       daily.push({
+         date: dateStr,
+         worked: Math.round(workedInDay),
+         expected: expectedMinutesPerDay,
+         balance: Math.round(workedInDay) - expectedMinutesPerDay,
+         logs: dayLogs
+       });
     }
     
-    if (isHoliday(date) || isAbsence(date)) {
-      expectedMinutesPerDay = 0;
-    }
-    
-    daily.push({
-      date,
-      worked: Math.round(workedInDay),
-      expected: expectedMinutesPerDay,
-      balance: Math.round(workedInDay) - expectedMinutesPerDay,
-      logs: dayLogs
-    });
-  });
-
-  daily.sort((a, b) => a.date.localeCompare(b.date));
-
-  // Calculate overall expected hours in period
-  const start = new Date(`${startDateStr}T00:00:00`);
-  const end = new Date(`${endDateStr}T23:59:59`);
-  
-  const current = new Date(start);
-  while (current <= end) {
-    const dayOfWeek = current.getDay();
-    
-    const dateStr = current.getFullYear() + '-' + String(current.getMonth() + 1).padStart(2, '0') + '-' + String(current.getDate()).padStart(2, '0');
-    
-    if (!isHoliday(dateStr) && !isAbsence(dateStr)) {
-      if (employee.schedule_type === 'custom' && employee.custom_schedule) {
-        const schedule = employee.custom_schedule[dayOfWeek];
-        if (schedule?.active) {
-          const workMins = calcMinutes(schedule.work_start, schedule.break_start) + calcMinutes(schedule.break_end, schedule.work_end);
-          const fallback = Math.round((employee.weekly_hours || 44) / Object.values(employee.custom_schedule).filter((s: any) => s.active).length * 60);
-          overallExpectedMinutes += workMins > 0 ? workMins : fallback;
-        }
-      } else {
-        if (!employee.work_days || employee.work_days.includes(dayOfWeek)) {
-          const workMins = calcMinutes(employee.work_start, employee.break_start) + calcMinutes(employee.break_end, employee.work_end);
-          const activeDaysPerWeek = employee.work_days ? employee.work_days.length : 5;
-          const fallback = activeDaysPerWeek > 0 ? Math.round((employee.weekly_hours || 44) / activeDaysPerWeek * 60) : 0;
-          overallExpectedMinutes += workMins > 0 ? workMins : fallback;
-        }
-      }
-    }
     current.setDate(current.getDate() + 1);
   }
+
+  daily.sort((a, b) => a.date.localeCompare(b.date));
 
   const overallBalanceMinutes = Math.round(totalWorkedMinutes) - overallExpectedMinutes;
 
