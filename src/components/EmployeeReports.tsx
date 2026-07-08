@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabaseClient';
-import { TimeLog, Employee } from '../types';
+import { TimeLog, Employee, Holiday, Absence } from '../types';
 import { Download, FileText, ArrowLeft, Clock, Edit2, Trash2, X, Calculator } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import { calculateTimeBank, formatHours, formatHoursNeutral } from '../utils/timeBank';
@@ -12,6 +12,8 @@ export const EmployeeReports = ({ employee, onBack, isAdmin = false }: { employe
   const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
   const [startDate, setStartDate] = useState(firstDay.toISOString().split('T')[0]);
   const [endDate, setEndDate] = useState(today.toISOString().split('T')[0]);
+  const [holidays, setHolidays] = useState<Holiday[]>([]);
+  const [absences, setAbsences] = useState<Absence[]>([]);
 
   const fetchLogs = async () => {
     const { data } = await supabase
@@ -23,8 +25,17 @@ export const EmployeeReports = ({ employee, onBack, isAdmin = false }: { employe
     if (data) setLogs(data);
   };
 
+  const fetchAuxData = async () => {
+    const { data: hData } = await supabase.from('holidays').select('*');
+    if (hData) setHolidays(hData);
+    
+    const { data: aData } = await supabase.from('absences').select('*').eq('employee_id', employee.id);
+    if (aData) setAbsences(aData);
+  };
+
   useEffect(() => {
     fetchLogs();
+    fetchAuxData();
   }, [employee.id]);
 
   const baseFiltered = logs.filter(l => {
@@ -37,7 +48,7 @@ export const EmployeeReports = ({ employee, onBack, isAdmin = false }: { employe
   const generatedAbsences = generateAbsences(logs, [employee], startDate, endDate);
   const filtered = [...baseFiltered, ...generatedAbsences].sort((a, b) => b.timestamp.localeCompare(a.timestamp));
 
-  const timeBankReport = calculateTimeBank(employee, logs, startDate, endDate);
+  const timeBankReport = calculateTimeBank(employee, logs, startDate, endDate, holidays, absences);
 
   const [editingLog, setEditingLog] = useState<TimeLog | null>(null);
   const [editDate, setEditDate] = useState('');

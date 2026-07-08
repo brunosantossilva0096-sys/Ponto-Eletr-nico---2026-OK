@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabaseClient';
-import { TimeLog, Employee } from '../types';
+import { Employee, TimeLog, Holiday, Absence } from '../types';
 import { Clock, Calendar as CalendarIcon, User } from 'lucide-react';
 import { calculateTimeBank, formatHours, formatHoursNeutral } from '../utils/timeBank';
 
@@ -15,6 +15,8 @@ export const AdminTimeBank = () => {
   const [endDate, setEndDate] = useState(today.toISOString().split('T')[0]);
   
   const [logs, setLogs] = useState<TimeLog[]>([]);
+  const [holidays, setHolidays] = useState<Holiday[]>([]);
+  const [absences, setAbsences] = useState<Absence[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
@@ -45,11 +47,21 @@ export const AdminTimeBank = () => {
       setIsLoading(false);
     };
 
+    const fetchAuxData = async () => {
+      if (!selectedEmployee) return;
+      const { data: hData } = await supabase.from('holidays').select('*');
+      if (hData) setHolidays(hData);
+      
+      const { data: aData } = await supabase.from('absences').select('*').eq('employee_id', selectedEmployee);
+      if (aData) setAbsences(aData);
+    };
+
     fetchLogs();
+    fetchAuxData();
   }, [selectedEmployee, startDate, endDate]);
 
   const emp = employees.find(e => e.id === selectedEmployee) || null;
-  const report = calculateTimeBank(emp, logs, startDate, endDate);
+  const report = calculateTimeBank(emp, logs, startDate, endDate, holidays, absences);
 
   return (
     <div className="bg-white rounded-2xl shadow-sm border border-industrial-border overflow-hidden">

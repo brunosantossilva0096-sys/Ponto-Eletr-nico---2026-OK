@@ -1,4 +1,4 @@
-import { Employee, TimeLog } from '../types';
+import { Employee, TimeLog, Holiday, Absence } from '../types';
 
 const calcMinutes = (startStr?: string | null, endStr?: string | null) => {
   if (!startStr || !endStr) return 0;
@@ -7,7 +7,7 @@ const calcMinutes = (startStr?: string | null, endStr?: string | null) => {
   return (h2 * 60 + m2) - (h1 * 60 + m1);
 };
 
-export const calculateTimeBank = (employee: Employee | null, logs: TimeLog[], startDateStr: string, endDateStr: string) => {
+export const calculateTimeBank = (employee: Employee | null, logs: TimeLog[], startDateStr: string, endDateStr: string, holidays: Holiday[] = [], absences: Absence[] = []) => {
   if (!employee || !startDateStr || !endDateStr) return null;
 
   // Group logs by date
@@ -23,6 +23,9 @@ export const calculateTimeBank = (employee: Employee | null, logs: TimeLog[], st
   let totalWorkedMinutes = 0;
   let overallExpectedMinutes = 0;
   const daily: { date: string, worked: number, expected: number, balance: number, logs: TimeLog[] }[] = [];
+  
+  const isHoliday = (dateStr: string) => holidays.some(h => h.date === dateStr);
+  const isAbsence = (dateStr: string) => absences.some(a => dateStr >= a.start_date && dateStr <= a.end_date);
   
   // Calculate worked hours per day
   Object.keys(logsByDate).forEach(date => {
@@ -83,6 +86,10 @@ export const calculateTimeBank = (employee: Employee | null, logs: TimeLog[], st
       }
     }
     
+    if (isHoliday(date) || isAbsence(date)) {
+      expectedMinutesPerDay = 0;
+    }
+    
     daily.push({
       date,
       worked: Math.round(workedInDay),
@@ -102,19 +109,23 @@ export const calculateTimeBank = (employee: Employee | null, logs: TimeLog[], st
   while (current <= end) {
     const dayOfWeek = current.getDay();
     
-    if (employee.schedule_type === 'custom' && employee.custom_schedule) {
-      const schedule = employee.custom_schedule[dayOfWeek];
-      if (schedule?.active) {
-        const workMins = calcMinutes(schedule.work_start, schedule.break_start) + calcMinutes(schedule.break_end, schedule.work_end);
-        const fallback = Math.round((employee.weekly_hours || 44) / Object.values(employee.custom_schedule).filter((s: any) => s.active).length * 60);
-        overallExpectedMinutes += workMins > 0 ? workMins : fallback;
-      }
-    } else {
-      if (!employee.work_days || employee.work_days.includes(dayOfWeek)) {
-        const workMins = calcMinutes(employee.work_start, employee.break_start) + calcMinutes(employee.break_end, employee.work_end);
-        const activeDaysPerWeek = employee.work_days ? employee.work_days.length : 5;
-        const fallback = activeDaysPerWeek > 0 ? Math.round((employee.weekly_hours || 44) / activeDaysPerWeek * 60) : 0;
-        overallExpectedMinutes += workMins > 0 ? workMins : fallback;
+    const dateStr = current.getFullYear() + '-' + String(current.getMonth() + 1).padStart(2, '0') + '-' + String(current.getDate()).padStart(2, '0');
+    
+    if (!isHoliday(dateStr) && !isAbsence(dateStr)) {
+      if (employee.schedule_type === 'custom' && employee.custom_schedule) {
+        const schedule = employee.custom_schedule[dayOfWeek];
+        if (schedule?.active) {
+          const workMins = calcMinutes(schedule.work_start, schedule.break_start) + calcMinutes(schedule.break_end, schedule.work_end);
+          const fallback = Math.round((employee.weekly_hours || 44) / Object.values(employee.custom_schedule).filter((s: any) => s.active).length * 60);
+          overallExpectedMinutes += workMins > 0 ? workMins : fallback;
+        }
+      } else {
+        if (!employee.work_days || employee.work_days.includes(dayOfWeek)) {
+          const workMins = calcMinutes(employee.work_start, employee.break_start) + calcMinutes(employee.break_end, employee.work_end);
+          const activeDaysPerWeek = employee.work_days ? employee.work_days.length : 5;
+          const fallback = activeDaysPerWeek > 0 ? Math.round((employee.weekly_hours || 44) / activeDaysPerWeek * 60) : 0;
+          overallExpectedMinutes += workMins > 0 ? workMins : fallback;
+        }
       }
     }
     current.setDate(current.getDate() + 1);
