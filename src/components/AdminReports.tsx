@@ -4,9 +4,12 @@ import { TimeLog, Employee, AdminUser } from '../types';
 import { Download, Search, Clock, Pencil, Trash2, X, AlertTriangle, FileText, Plus } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import { generateAbsences } from '../utils/faltas';
+import { Holiday, Absence } from '../types';
 export const AdminReports = ({ loggedAdmin }: { loggedAdmin: AdminUser }) => {
-  const [logs, setLogs] = useState<(TimeLog & { employees: Employee })[]>([]);
-  const [allEmployees, setAllEmployees] = useState<Employee[]>([]);
+  const [logs, setLogs] = useState<any[]>([]);
+  const [allEmployees, setAllEmployees] = useState<any[]>([]);
+  const [holidays, setHolidays] = useState<Holiday[]>([]);
+  const [absences, setAbsences] = useState<Absence[]>([]);
   const [search, setSearch] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
@@ -40,9 +43,18 @@ export const AdminReports = ({ loggedAdmin }: { loggedAdmin: AdminUser }) => {
     if (data) setAllEmployees(data);
   };
 
+  const fetchAuxData = async () => {
+    const { data: hData } = await supabase.from('holidays').select('*');
+    if (hData) setHolidays(hData);
+    
+    const { data: aData } = await supabase.from('absences').select('*, employees(*)');
+    if (aData) setAbsences(aData);
+  };
+
   useEffect(() => {
     fetchLogs();
     fetchEmployees();
+    fetchAuxData();
   }, []);
 
   const searchedEmployees = allEmployees.filter(emp => {
@@ -58,16 +70,13 @@ export const AdminReports = ({ loggedAdmin }: { loggedAdmin: AdminUser }) => {
       l.employees?.cpf?.includes(search) ||
       l.employees?.companies?.name?.toLowerCase().includes(search.toLowerCase());
 
-    if (!matchesSearch) return false;
-
     const logDate = l.timestamp.split('T')[0];
-    if (startDate && logDate < startDate) return false;
-    if (endDate && logDate > endDate) return false;
+    const matchesDate = (!startDate || logDate >= startDate) && (!endDate || logDate <= endDate);
 
-    return true;
+    return matchesSearch && matchesDate;
   });
 
-  const generatedAbsences = generateAbsences(logs, searchedEmployees, startDate, endDate);
+  const generatedAbsences = generateAbsences(logs, searchedEmployees, startDate, endDate, holidays, absences);
   
   const filtered = [...baseFilteredLogs, ...generatedAbsences].sort((a, b) => b.timestamp.localeCompare(a.timestamp));
 

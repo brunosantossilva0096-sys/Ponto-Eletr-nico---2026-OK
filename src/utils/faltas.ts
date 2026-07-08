@@ -4,7 +4,9 @@ export function generateAbsences(
   logs: TimeLog[],
   employees: Employee[],
   startDateStr: string,
-  endDateStr: string
+  endDateStr: string,
+  holidays: Holiday[] = [],
+  absences: Absence[] = []
 ): TimeLog[] {
   if (!startDateStr || !endDateStr) return [];
   
@@ -40,7 +42,10 @@ export function generateAbsences(
                        String(current.getMonth() + 1).padStart(2, '0') + '-' + 
                        String(current.getDate()).padStart(2, '0');
         
-        if (!logsByDate.has(dateStr)) {
+        const isHoliday = holidays.some(h => h.date === dateStr);
+        const isAbsence = absences.some(a => dateStr >= a.start_date && dateStr <= a.end_date);
+        
+        if (!logsByDate.has(dateStr) && !isHoliday && !isAbsence) {
           absences.push({
             id: `falta-${emp.id}-${dateStr}`,
             employee_id: emp.id,

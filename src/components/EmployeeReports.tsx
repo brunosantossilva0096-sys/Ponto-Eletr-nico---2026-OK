@@ -45,7 +45,7 @@ export const EmployeeReports = ({ employee, onBack, isAdmin = false }: { employe
     return true;
   });
 
-  const generatedAbsences = generateAbsences(logs, [employee], startDate, endDate);
+  const generatedAbsences = generateAbsences(logs, [employee], startDate, endDate, holidays, absences);
   const filtered = [...baseFiltered, ...generatedAbsences].sort((a, b) => b.timestamp.localeCompare(a.timestamp));
 
   const timeBankReport = calculateTimeBank(employee, logs, startDate, endDate, holidays, absences);
