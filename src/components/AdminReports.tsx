@@ -179,6 +179,7 @@ export const AdminReports = ({ loggedAdmin }: { loggedAdmin: AdminUser }) => {
     }).eq('id', editingLog.id);
 
     setEditingLog(null);
+    setEditingLog(null);
     fetchLogs();
   };
 
@@ -188,29 +189,41 @@ export const AdminReports = ({ loggedAdmin }: { loggedAdmin: AdminUser }) => {
       alert('Preencha todos os campos obrigatórios.');
       return;
     }
-    
-    const emp = allEmployees.find(x => x.id === addEmployeeId);
-    if (!emp) return;
 
     const newTimestamp = new Date(`${addDate}T${addTime}:00`).toISOString();
+    const hashStr = "MANUAL-" + Date.now().toString(16);
 
-    await supabase.from('time_logs').insert([{
+    const emp = allEmployees.find(e => e.id === addEmployeeId);
+
+    const log = {
+      id: crypto.randomUUID(),
       employee_id: addEmployeeId,
       timestamp: newTimestamp,
       type: addType,
       verification_method: 'Manual (Admin)',
-      hash_assinatura: 'INSERCAO-MANUAL-' + Date.now(),
-      pis_pasep_trabalhador: emp.pis,
-      cpf_trabalhador: emp.cpf,
+      hash_assinatura: hashStr,
       is_edited: true,
       original_timestamp: newTimestamp,
-      edit_reason: 'Inserção Manual: ' + addReason
-    }]);
+      edit_reason: 'Inserção Manual: ' + addReason,
+      distance: null,
+      latitude: null,
+      longitude: null,
+      pis_pasep_trabalhador: emp?.pis || '',
+      cpf_trabalhador: emp?.cpf || ''
+    };
 
-    setIsAddingManual(false);
-    setAddEmployeeId('');
-    setAddReason('');
-    fetchLogs();
+    const { error } = await supabase.from('time_logs').insert([log]);
+    
+    if (error) {
+      alert('Erro ao salvar no servidor. Verifique sua conexão.');
+    } else {
+      setIsAddingManual(false);
+      setAddDate('');
+      setAddTime('');
+      setAddReason('');
+      setAddEmployeeId('');
+      fetchLogs();
+    }
   };
 
   return (
@@ -423,7 +436,13 @@ export const AdminReports = ({ loggedAdmin }: { loggedAdmin: AdminUser }) => {
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-industrial-muted mb-1">Horário</label>
-                  <input type="time" required value={addTime} onChange={e => setAddTime(e.target.value)} className="w-full bg-industrial-bg border border-industrial-border rounded-lg p-2 text-sm focus:border-corporate-blue focus:outline-none" />
+                  <input 
+                    type="time" 
+                    required
+                    value={addTime}
+                    onChange={e => setAddTime(e.target.value)}
+                    className="w-full bg-industrial-bg border border-industrial-border rounded-lg p-2 text-sm focus:border-corporate-blue focus:outline-none" 
+                  />
                 </div>
               </div>
               <div>
@@ -441,8 +460,8 @@ export const AdminReports = ({ loggedAdmin }: { loggedAdmin: AdminUser }) => {
                 </select>
               </div>
               <div>
-                <label className="block text-xs font-semibold text-industrial-muted mb-1">Motivo / Justificativa</label>
-                <textarea required value={addReason} onChange={e => setAddReason(e.target.value)} placeholder="Ex: Esqueceu de registrar no celular" className="w-full bg-industrial-bg border border-industrial-border rounded-lg p-2 text-sm focus:outline-none focus:border-cyber-emerald min-h-[60px]" />
+                <label className="block text-xs font-semibold text-industrial-muted mb-1">Motivo / Justificativa (Obrigatório)</label>
+                <textarea required value={addReason} onChange={e => setAddReason(e.target.value)} placeholder="Ex: Sistema offline, esqueceu de registrar..." className="w-full bg-industrial-bg border border-industrial-border rounded-lg p-2 text-sm focus:outline-none focus:border-cyber-emerald min-h-[60px]" />
               </div>
               <button type="submit" className="w-full bg-cyber-emerald text-white py-2 rounded-xl font-bold hover:bg-opacity-90">
                 Inserir Registro
