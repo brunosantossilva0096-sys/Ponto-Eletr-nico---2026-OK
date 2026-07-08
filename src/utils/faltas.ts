@@ -1,4 +1,4 @@
-import { TimeLog, Employee } from '../types';
+import { TimeLog, Employee, Holiday, Absence } from '../types';
 
 export function generateAbsences(
   logs: TimeLog[],
@@ -6,11 +6,11 @@ export function generateAbsences(
   startDateStr: string,
   endDateStr: string,
   holidays: Holiday[] = [],
-  absences: Absence[] = []
+  absencesDb: Absence[] = []
 ): TimeLog[] {
   if (!startDateStr || !endDateStr) return [];
   
-  const absences: TimeLog[] = [];
+  const generatedAbsences: TimeLog[] = [];
   const start = new Date(startDateStr + 'T00:00:00');
   const end = new Date(endDateStr + 'T23:59:59');
   
@@ -43,10 +43,10 @@ export function generateAbsences(
                        String(current.getDate()).padStart(2, '0');
         
         const isHoliday = holidays.some(h => h.date === dateStr);
-        const isAbsence = absences.some(a => dateStr >= a.start_date && dateStr <= a.end_date);
+        const isAbsence = absencesDb.some(a => dateStr >= a.start_date && dateStr <= a.end_date);
         
         if (!logsByDate.has(dateStr) && !isHoliday && !isAbsence) {
-          absences.push({
+          generatedAbsences.push({
             id: `falta-${emp.id}-${dateStr}`,
             employee_id: emp.id,
             timestamp: `${dateStr}T00:00:00-03:00`,
@@ -71,5 +71,5 @@ export function generateAbsences(
     }
   });
 
-  return absences;
+  return generatedAbsences;
 }
