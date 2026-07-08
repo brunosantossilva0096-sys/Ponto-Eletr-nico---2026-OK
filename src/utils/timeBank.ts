@@ -25,7 +25,7 @@ export const calculateTimeBank = (employee: Employee | null, logs: TimeLog[], st
   const daily: { date: string, worked: number, expected: number, balance: number, logs: TimeLog[] }[] = [];
   
   const isHoliday = (dateStr: string) => holidays.some(h => h.date === dateStr);
-  const isAbsence = (dateStr: string) => absences.some(a => dateStr >= a.start_date && dateStr <= a.end_date);
+  const getAbsence = (dateStr: string) => absences.find(a => dateStr >= a.start_date && dateStr <= a.end_date);
   
   const start = new Date(`${startDateStr}T00:00:00`);
   const end = new Date(`${endDateStr}T23:59:59`);
@@ -86,14 +86,31 @@ export const calculateTimeBank = (employee: Employee | null, logs: TimeLog[], st
     }
     
     // 3. Apply Holiday and Abono Rules
+    const abono = getAbsence(dateStr);
+    
     if (isHoliday(dateStr)) {
        // Holiday: expected is 0. Any worked hours are extra.
        expectedMinutesPerDay = 0;
-    } else if (isAbsence(dateStr)) {
+    } else if (abono) {
        // Abono: Expected remains normal. But we "credit" the expected hours as worked.
-       if (workedInDay < expectedMinutesPerDay) {
-           workedInDay = expectedMinutesPerDay;
+       let creditedHours = 0;
+       
+       if (abono.shift === 'manha') {
+           const wStart = employee.schedule_type === 'custom' && employee.custom_schedule ? employee.custom_schedule[dayOfWeek]?.work_start : employee.work_start;
+           const bStart = employee.schedule_type === 'custom' && employee.custom_schedule ? employee.custom_schedule[dayOfWeek]?.break_start : employee.break_start;
+           creditedHours = calcMinutes(wStart, bStart);
+       } else if (abono.shift === 'tarde') {
+           const bEnd = employee.schedule_type === 'custom' && employee.custom_schedule ? employee.custom_schedule[dayOfWeek]?.break_end : employee.break_end;
+           const wEnd = employee.schedule_type === 'custom' && employee.custom_schedule ? employee.custom_schedule[dayOfWeek]?.work_end : employee.work_end;
+           creditedHours = calcMinutes(bEnd, wEnd);
+       } else {
+           // Integral
+           // Se for integral, não deve exceder as horas esperadas se o funcionário não trabalhou
+           creditedHours = expectedMinutesPerDay;
        }
+       
+       // Credita as horas ao total trabalhado do dia
+       workedInDay += creditedHours;
     }
     
     totalWorkedMinutes += workedInDay;
@@ -101,7 +118,7 @@ export const calculateTimeBank = (employee: Employee | null, logs: TimeLog[], st
     
     // Only include in daily breakdown if there's log activity OR if it's a holiday/abono OR if it's a past workday.
     // This makes the UI list much more transparent.
-    if (dayLogs.length > 0 || isAbsence(dateStr) || isHoliday(dateStr) || (expectedMinutesPerDay > 0 && current < today)) {
+    if (dayLogs.length > 0 || abono || isHoliday(dateStr) || (expectedMinutesPerDay > 0 && current < today)) {
        daily.push({
          date: dateStr,
          worked: Math.round(workedInDay),

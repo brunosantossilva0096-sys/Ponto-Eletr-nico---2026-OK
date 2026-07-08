@@ -80,6 +80,7 @@ export interface Absence {
   employee_id: string;
   start_date: string;
   end_date: string;
+  shift?: 'integral' | 'manha' | 'tarde';
   reason: string;
   approved_by: string | null;
   document_url: string | null;

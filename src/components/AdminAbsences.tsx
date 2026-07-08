@@ -10,6 +10,7 @@ export const AdminAbsences = () => {
   const [employeeId, setEmployeeId] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
+  const [shift, setShift] = useState<'integral'|'manha'|'tarde'>('integral');
   const [reason, setReason] = useState('');
   const [approvedBy, setApprovedBy] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -34,14 +35,15 @@ export const AdminAbsences = () => {
     if (!employeeId || !startDate || !endDate || !reason) return;
 
     if (editingId) {
-      await supabase.from('absences').update({ employee_id: employeeId, start_date: startDate, end_date: endDate, reason, approved_by: approvedBy }).eq('id', editingId);
+      await supabase.from('absences').update({ employee_id: employeeId, start_date: startDate, end_date: endDate, shift, reason, approved_by: approvedBy }).eq('id', editingId);
     } else {
-      await supabase.from('absences').insert([{ employee_id: employeeId, start_date: startDate, end_date: endDate, reason, approved_by: approvedBy }]);
+      await supabase.from('absences').insert([{ employee_id: employeeId, start_date: startDate, end_date: endDate, shift, reason, approved_by: approvedBy }]);
     }
     
     setEmployeeId('');
     setStartDate('');
     setEndDate('');
+    setShift('integral');
     setReason('');
     setApprovedBy('');
     setEditingId(null);
@@ -53,6 +55,7 @@ export const AdminAbsences = () => {
     setEmployeeId(a.employee_id);
     setStartDate(a.start_date);
     setEndDate(a.end_date);
+    setShift(a.shift || 'integral');
     setReason(a.reason);
     setApprovedBy(a.approved_by || '');
   };
@@ -107,6 +110,18 @@ export const AdminAbsences = () => {
                 className="w-full bg-industrial-bg border border-industrial-border rounded-lg p-2 text-sm focus:border-cyber-emerald outline-none"
               />
             </div>
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-industrial-muted mb-1">Turno / Período</label>
+            <select
+              value={shift}
+              onChange={(e) => setShift(e.target.value as 'integral'|'manha'|'tarde')}
+              className="w-full bg-industrial-bg border border-industrial-border rounded-lg p-2 focus:border-cyber-emerald outline-none"
+            >
+              <option value="integral">Integral (Dia Todo)</option>
+              <option value="manha">Somente Manhã</option>
+              <option value="tarde">Somente Tarde</option>
+            </select>
           </div>
           <div>
             <label className="block text-xs font-semibold text-industrial-muted mb-1">Motivo / Justificativa</label>
@@ -166,6 +181,9 @@ export const AdminAbsences = () => {
                     {a.start_date !== a.end_date && (
                       <span className="text-industrial-muted text-xs">até {new Date(a.end_date + 'T12:00:00Z').toLocaleDateString('pt-BR')}</span>
                     )}
+                    <span className="block mt-1 bg-industrial-border/50 text-industrial-muted text-[10px] font-bold px-2 py-0.5 rounded uppercase w-fit">
+                      {a.shift === 'manha' ? 'Manhã' : a.shift === 'tarde' ? 'Tarde' : 'Integral'}
+                    </span>
                   </td>
                   <td className="p-3">
                     <span className="block font-medium">{a.employees?.name}</span>
