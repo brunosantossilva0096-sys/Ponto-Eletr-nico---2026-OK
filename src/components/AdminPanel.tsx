@@ -644,7 +644,7 @@ export const AdminPanel = ({ loggedAdmin, onLogout }: { loggedAdmin: AdminUser, 
                               <input type="time" title="Entrada" value={sc.work_start} onChange={(e) => setCustomSchedule({ ...customSchedule, [idx]: { ...sc, work_start: e.target.value } })} className="w-full bg-industrial-bg border border-industrial-border rounded-md p-1.5 text-xs focus:outline-none focus:border-cyber-emerald" />
                             </div>
                             <div>
-                              <input type="time" title="Saída Almoço" value={sc.break_start} onChange={(e) => setCustomSchedule({ ...customSchedule, [idx]: { ...sc, break_start: e.target.value } })} className="w-full bg-industrial-bg border border-industrial-border rounded-md p-1.5 text-xs focus:outline-none focus:border-cyber-emerald" />
+                              <input type="time" title="Saída Manhã" value={sc.break_start} onChange={(e) => setCustomSchedule({ ...customSchedule, [idx]: { ...sc, break_start: e.target.value } })} className="w-full bg-industrial-bg border border-industrial-border rounded-md p-1.5 text-xs focus:outline-none focus:border-cyber-emerald" />
                             </div>
                             <div>
                               <input type="time" title="Retorno Tarde" value={sc.break_end} onChange={(e) => setCustomSchedule({ ...customSchedule, [idx]: { ...sc, break_end: e.target.value } })} className="w-full bg-industrial-bg border border-industrial-border rounded-md p-1.5 text-xs focus:outline-none focus:border-cyber-emerald" />

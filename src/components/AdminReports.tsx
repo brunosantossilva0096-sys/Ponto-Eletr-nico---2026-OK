@@ -341,7 +341,7 @@ export const AdminReports = ({ loggedAdmin }: { loggedAdmin: AdminUser }) => {
                   <span className={`px-2 py-1 rounded-md text-xs font-semibold ${
                     (log.isFalta || log.type?.startsWith('Falta')) ? 'bg-red-100 text-red-600' :
                     log.type === 'Entrada Manhã' ? 'bg-cyber-emerald/10 text-cyber-emerald' :
-                    log.type === 'Saída Almoço' ? 'bg-orange-50 text-orange-500' :
+                    log.type === 'Saída Manhã' ? 'bg-orange-50 text-orange-500' :
                     log.type === 'Entrada Tarde' ? 'bg-blue-50 text-corporate-blue' :
                     log.type === 'Saída Tarde' ? 'bg-purple-50 text-purple-600' :
                     'bg-industrial-bg text-industrial-muted'
@@ -429,7 +429,7 @@ export const AdminReports = ({ loggedAdmin }: { loggedAdmin: AdminUser }) => {
                   className="w-full bg-industrial-bg border border-industrial-border rounded-lg p-2 text-sm focus:border-corporate-blue focus:outline-none"
                 >
                   <option value="Entrada Manhã">Entrada Manhã</option>
-                  <option value="Saída Almoço">Saída Almoço</option>
+                  <option value="Saída Manhã">Saída Manhã</option>
                   <option value="Entrada Tarde">Entrada Tarde</option>
                   <option value="Saída Tarde">Saída Tarde</option>
                   <option value="Batida Extra">Batida Extra</option>
@@ -500,7 +500,7 @@ export const AdminReports = ({ loggedAdmin }: { loggedAdmin: AdminUser }) => {
                   className="w-full bg-industrial-bg border border-industrial-border rounded-lg p-2 text-sm focus:border-corporate-blue focus:outline-none"
                 >
                   <option value="Entrada Manhã">Entrada Manhã</option>
-                  <option value="Saída Almoço">Saída Almoço</option>
+                  <option value="Saída Manhã">Saída Manhã</option>
                   <option value="Entrada Tarde">Entrada Tarde</option>
                   <option value="Saída Tarde">Saída Tarde</option>
                   <option value="Batida Extra">Batida Extra</option>

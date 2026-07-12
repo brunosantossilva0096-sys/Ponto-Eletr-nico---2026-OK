@@ -7,7 +7,7 @@ import { EmployeeReports } from './EmployeeReports';
 
 const PUNCH_TYPES = [
   { type: 'Entrada Manhã', label: 'Entrada Manhã', icon: LogIn, color: 'text-cyber-emerald', bg: 'bg-cyber-emerald/10' },
-  { type: 'Saída Almoço', label: 'Saída Almoço', icon: Coffee, color: 'text-orange-500', bg: 'bg-orange-50' },
+  { type: 'Saída Manhã', label: 'Saída Manhã', icon: Coffee, color: 'text-orange-500', bg: 'bg-orange-50' },
   { type: 'Entrada Tarde', label: 'Entrada Tarde', icon: LogIn, color: 'text-corporate-blue', bg: 'bg-blue-50' },
   { type: 'Saída Tarde', label: 'Saída Tarde', icon: Moon, color: 'text-purple-600', bg: 'bg-purple-50' },
 ];
