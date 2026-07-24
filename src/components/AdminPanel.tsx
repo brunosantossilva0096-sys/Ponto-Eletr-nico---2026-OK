@@ -133,6 +133,7 @@ export const AdminPanel = ({ loggedAdmin, onLogout }: { loggedAdmin: AdminUser, 
   const [allowedMac, setAllowedMac] = useState('');
   const [ignoreGpsOnPc, setIgnoreGpsOnPc] = useState(false);
   const [macRestrictionEnabled, setMacRestrictionEnabled] = useState(false);
+  const [blockMobileAccess, setBlockMobileAccess] = useState(false);
 
   const handleImportGoogleMaps = (val: string) => {
     setGoogleMapsInput(val);
@@ -214,6 +215,7 @@ export const AdminPanel = ({ loggedAdmin, onLogout }: { loggedAdmin: AdminUser, 
     setAllowedMac('');
     setIgnoreGpsOnPc(false);
     setMacRestrictionEnabled(false);
+    setBlockMobileAccess(false);
     setBiometricTemplate(null);
     setWorkStart('');
     setBreakStart('');
@@ -239,6 +241,7 @@ export const AdminPanel = ({ loggedAdmin, onLogout }: { loggedAdmin: AdminUser, 
     setAllowedMac(emp.allowed_mac_address || '');
     setIgnoreGpsOnPc(emp.ignore_gps_on_pc || false);
     setMacRestrictionEnabled(emp.mac_restriction_enabled || false);
+    setBlockMobileAccess(emp.block_mobile_access || false);
     setWorkStart(emp.work_start || '');
     setBreakStart(emp.break_start || '');
     setBreakEnd(emp.break_end || '');
@@ -277,6 +280,7 @@ export const AdminPanel = ({ loggedAdmin, onLogout }: { loggedAdmin: AdminUser, 
       allowed_mac_address: allowedMac || null,
       ignore_gps_on_pc: ignoreGpsOnPc,
       mac_restriction_enabled: macRestrictionEnabled,
+      block_mobile_access: blockMobileAccess,
       company_id: companyId,
       work_start: workStart || null,
       break_start: breakStart || null,
@@ -503,6 +507,12 @@ export const AdminPanel = ({ loggedAdmin, onLogout }: { loggedAdmin: AdminUser, 
               <div className="flex items-center gap-2 pt-6">
                 <input type="checkbox" checked={ignoreGpsOnPc} onChange={e => setIgnoreGpsOnPc(e.target.checked)} className="rounded border-industrial-border text-cyber-emerald focus:ring-cyber-emerald w-4 h-4" />
                 <label className="text-xs font-semibold text-industrial-muted">Ignorar validação de GPS em Computadores (PC)</label>
+              </div>
+              <div className="col-span-2">
+                <div className="flex items-center gap-2 mb-2">
+                  <input type="checkbox" checked={blockMobileAccess} onChange={e => setBlockMobileAccess(e.target.checked)} className="rounded border-industrial-border text-red-500 focus:ring-red-500 w-4 h-4" />
+                  <label className="text-xs font-semibold text-industrial-muted text-red-600">Bloquear registro de ponto por Celular (Mobile)</label>
+                </div>
               </div>
               <div className="col-span-2">
                 <div className="flex items-center gap-2 mb-2">

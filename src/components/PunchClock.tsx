@@ -106,6 +106,13 @@ export const PunchClock = ({ employee, onBack }: { employee: Employee, onBack: (
     const instruction = getAuthInstruction();
 
     const isMobile = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    
+    if (isMobile && employee.block_mobile_access) {
+      setStatus('error');
+      setMessage('Acesso Negado: Você não tem permissão para bater ponto pelo celular. Use um computador autorizado.');
+      return;
+    }
+    
     if (!isMobile && employee.ignore_gps_on_pc) {
       setStatus('ready');
       setMessage(instruction);
