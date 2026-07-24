@@ -60,28 +60,12 @@ export const calculateTimeBank = (employee: Employee | null, logs: TimeLog[], st
     const dayLogs = logsByDate[dateStr] ? logsByDate[dateStr].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()) : [];
     
     if (dayLogs.length >= 2) {
-      const entradas = dayLogs.filter(l => l.type.includes('Entrada'));
-      const saidas = dayLogs.filter(l => l.type.includes('Saída'));
-      
-      if (entradas.length > 0 && saidas.length > 0) {
-         for(let i=0; i<Math.min(entradas.length, saidas.length); i++) {
-           const inTime = new Date(entradas[i].timestamp).getTime();
-           const outTime = new Date(saidas[i].timestamp).getTime();
-           if (outTime > inTime) {
-             workedInDay += (outTime - inTime) / (1000 * 60);
-           }
-         }
-      } else if (dayLogs.length === 2) {
-         const inTime = new Date(dayLogs[0].timestamp).getTime();
-         const outTime = new Date(dayLogs[1].timestamp).getTime();
-         workedInDay += (outTime - inTime) / (1000 * 60);
-      } else if (dayLogs.length === 4) {
-         const in1 = new Date(dayLogs[0].timestamp).getTime();
-         const out1 = new Date(dayLogs[1].timestamp).getTime();
-         const in2 = new Date(dayLogs[2].timestamp).getTime();
-         const out2 = new Date(dayLogs[3].timestamp).getTime();
-         workedInDay += (out1 - in1) / (1000 * 60);
-         workedInDay += (out2 - in2) / (1000 * 60);
+      for (let i = 0; i < dayLogs.length - 1; i += 2) {
+        const inTime = new Date(dayLogs[i].timestamp).getTime();
+        const outTime = new Date(dayLogs[i + 1].timestamp).getTime();
+        if (outTime > inTime) {
+          workedInDay += (outTime - inTime) / (1000 * 60);
+        }
       }
     }
     
