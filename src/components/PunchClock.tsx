@@ -58,18 +58,33 @@ export const PunchClock = ({ employee, onBack }: { employee: Employee, onBack: (
       const todayEnd = new Date();
       todayEnd.setHours(23, 59, 59, 999);
 
-      const { data } = await supabase
-        .from('time_logs')
-        .select('*')
-        .eq('employee_id', employee.id)
-        .gte('timestamp', todayStart.toISOString())
-        .lte('timestamp', todayEnd.toISOString())
-        .order('timestamp', { ascending: true });
-      
-      if (data) {
-        setTodayLogs(data);
-        setPunchIndex(data.length);
+      let todayOnline: TimeLog[] = [];
+      if (navigator.onLine) {
+        try {
+          const { data } = await supabase
+            .from('time_logs')
+            .select('*')
+            .eq('employee_id', employee.id)
+            .gte('timestamp', todayStart.toISOString())
+            .lte('timestamp', todayEnd.toISOString())
+            .order('timestamp', { ascending: true });
+          if (data) todayOnline = data;
+        } catch (e) {
+          // ignore
+        }
       }
+
+      // Merge with offline logs
+      const offlineLogs: TimeLog[] = JSON.parse(localStorage.getItem('offline_punches') || '[]')
+        .filter((l: TimeLog) => l.employee_id === employee.id && l.timestamp >= todayStart.toISOString() && l.timestamp <= todayEnd.toISOString());
+
+      // Distinct IDs to avoid duplicates if sync just happened
+      const allLogs = [...todayOnline, ...offlineLogs];
+      const uniqueLogs = Array.from(new Map(allLogs.map(l => [l.id, l])).values());
+      uniqueLogs.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+
+      setTodayLogs(uniqueLogs);
+      setPunchIndex(uniqueLogs.length);
     };
     fetchTodayLogs();
   }, [employee.id]);
@@ -143,6 +158,34 @@ export const PunchClock = ({ employee, onBack }: { employee: Employee, onBack: (
     );
   }, [status, employee]);
 
+  // Verificar MAC Address se necessário
+  useEffect(() => {
+    if (status !== 'locating' && status !== 'ready') return;
+    
+    if (employee.allowed_mac_address) {
+      const checkMac = async () => {
+        try {
+          const res = await fetch('http://127.0.0.1:8000/mac-address');
+          const data = await res.json();
+          if (!data.success || !data.macAddress) {
+             setStatus('error');
+             setMessage('Este funcionário tem restrição de computador (MAC Address), mas não foi possível ler o MAC. (Servidor biométrico local rodando?)');
+             return;
+          }
+          if (data.macAddress.toUpperCase() !== employee.allowed_mac_address!.toUpperCase()) {
+             setStatus('error');
+             setMessage(`Acesso negado: Você só pode bater ponto no computador autorizado.\n(MAC lido: ${data.macAddress})`);
+             return;
+          }
+        } catch (err) {
+           setStatus('error');
+           setMessage('Restrição de MAC ativa, mas o serviço local de leitura de MAC (server.js) está offline.');
+        }
+      };
+      checkMac();
+    }
+  }, [status, employee]);
+
   const recordTimeLog = async (method: string) => {
     setStatus('verifying');
     const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`${employee.id}-${Date.now()}`));
@@ -165,11 +208,32 @@ export const PunchClock = ({ employee, onBack }: { employee: Employee, onBack: (
       cpf_trabalhador: employee.cpf
     };
 
+    if (!navigator.onLine) {
+      // Salvar offline
+      const offlineLogs = JSON.parse(localStorage.getItem('offline_punches') || '[]');
+      offlineLogs.push(log);
+      localStorage.setItem('offline_punches', JSON.stringify(offlineLogs));
+      setStatus('success');
+      setMessage(`${currentPunch.label} salvo OFFLINE! (Será sincronizado quando houver internet)`);
+      setTimeout(() => onBack(), 4000);
+      return;
+    }
+
     const { error } = await supabase.from('time_logs').insert([log]);
     
     if (error) {
-      setStatus('error');
-      setMessage('Erro ao salvar no servidor.');
+      // Falhou o insert por rede mesmo estando online?
+      if (error.message && error.message.toLowerCase().includes('fetch')) {
+        const offlineLogs = JSON.parse(localStorage.getItem('offline_punches') || '[]');
+        offlineLogs.push(log);
+        localStorage.setItem('offline_punches', JSON.stringify(offlineLogs));
+        setStatus('success');
+        setMessage(`${currentPunch.label} salvo OFFLINE (Erro de rede).`);
+        setTimeout(() => onBack(), 4000);
+      } else {
+        setStatus('error');
+        setMessage('Erro ao salvar no servidor.');
+      }
     } else {
       setStatus('success');
       setMessage(`${currentPunch.label} registrado com sucesso!`);
@@ -183,10 +247,19 @@ export const PunchClock = ({ employee, onBack }: { employee: Employee, onBack: (
     setMessage('Escaneando digital...');
     
     try {
-      // 1. Pegar digital cadastrada
-      const { data: dbData } = await supabase.from('biometric_templates').select('template').eq('employee_id', employee.id).maybeSingle();
-      if (!dbData || !dbData.template) {
-        throw new Error("Sua digital não está cadastrada no sistema.");
+      // 1. Pegar digital cadastrada (banco ou cache)
+      let templateStr = null;
+      if (navigator.onLine) {
+        const { data: dbData } = await supabase.from('biometric_templates').select('template').eq('employee_id', employee.id).maybeSingle();
+        if (dbData) templateStr = dbData.template;
+      } else {
+        const cachedBio = JSON.parse(localStorage.getItem('offline_templates') || '[]');
+        const userBio = cachedBio.find((b: any) => b.employee_id === employee.id);
+        if (userBio) templateStr = userBio.template;
+      }
+
+      if (!templateStr) {
+        throw new Error("Sua digital não está cadastrada no sistema (ou não está no cache offline).");
       }
 
       // 2. Capturar digital do sensor local
@@ -199,7 +272,7 @@ export const PunchClock = ({ employee, onBack }: { employee: Employee, onBack: (
       const matchRes = await fetch('http://127.0.0.1:8000/SGIFPMatch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ template1: capData.template, template2: dbData.template })
+        body: JSON.stringify({ template1: capData.template, template2: templateStr })
       });
       const matchData = await matchRes.json();
       

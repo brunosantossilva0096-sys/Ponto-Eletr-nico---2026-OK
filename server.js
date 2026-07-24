@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import fs from 'fs';
+import os from 'os';
 import SecuGenWrapper, { sdkAvailable, getErrorMessage } from './secugen-wrapper.js';
 
 const app = express();
@@ -59,6 +60,26 @@ app.get('/SGIFPStatus', (req, res) => {
     deviceInfo: status.deviceInfo,
     dllPath: status.dllPath
   });
+});
+
+// --- Obter MAC Address Local ---
+app.get('/mac-address', (req, res) => {
+  try {
+    const interfaces = os.networkInterfaces();
+    let macAddress = null;
+    for (const name of Object.keys(interfaces)) {
+      for (const iface of interfaces[name]) {
+        if (!iface.internal && iface.mac !== '00:00:00:00:00:00') {
+          macAddress = iface.mac;
+          break;
+        }
+      }
+      if (macAddress) break;
+    }
+    res.json({ success: true, macAddress });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
 });
 
 // --- Capturar impressão digital ---

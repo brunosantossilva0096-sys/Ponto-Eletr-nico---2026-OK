@@ -12,13 +12,35 @@ export const EmployeeSelect = ({ onSelectEmployee, onAdminLogin }: { onSelectEmp
 
   useEffect(() => {
     const fetchData = async () => {
-      const { data: empData } = await supabase.from('employees').select('*, companies(*)').order('name');
-      if (empData) {
-        setEmployees(empData.filter(emp => emp.role !== 'Admin'));
-      }
-      const { data: compData } = await supabase.from('companies').select('*').order('name');
-      if (compData) {
-        setCompanies(compData);
+      // Carrega cache local primeiro
+      const cachedEmp = localStorage.getItem('offline_employees');
+      if (cachedEmp) setEmployees(JSON.parse(cachedEmp));
+      
+      const cachedComp = localStorage.getItem('offline_companies');
+      if (cachedComp) setCompanies(JSON.parse(cachedComp));
+
+      if (!navigator.onLine) return;
+
+      try {
+        const { data: empData } = await supabase.from('employees').select('*, companies(*)').order('name');
+        if (empData) {
+          const validEmp = empData.filter(emp => emp.role !== 'Admin');
+          setEmployees(validEmp);
+          localStorage.setItem('offline_employees', JSON.stringify(validEmp));
+        }
+        const { data: compData } = await supabase.from('companies').select('*').order('name');
+        if (compData) {
+          setCompanies(compData);
+          localStorage.setItem('offline_companies', JSON.stringify(compData));
+        }
+        
+        // Faz cache das biometrias para o modo offline
+        const { data: bioData } = await supabase.from('biometric_templates').select('employee_id, template');
+        if (bioData) {
+          localStorage.setItem('offline_templates', JSON.stringify(bioData));
+        }
+      } catch (err) {
+        console.warn('Falha na sincronização de dados (Offline?)', err);
       }
     };
     fetchData();

@@ -16,6 +16,7 @@ export interface Employee {
   allowed_lat: number | null;
   allowed_lng: number | null;
   allowed_radius: number;
+  allowed_mac_address?: string | null;
   company_id?: string;
   companies?: Company; // Para queries com JOIN
   

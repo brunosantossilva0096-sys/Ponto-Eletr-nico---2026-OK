@@ -130,6 +130,7 @@ export const AdminPanel = ({ loggedAdmin, onLogout }: { loggedAdmin: AdminUser, 
   const [companyId, setCompanyId] = useState('');
   const [googleMapsInput, setGoogleMapsInput] = useState('');
   const [position, setPosition] = useState<[number, number] | null>(null);
+  const [allowedMac, setAllowedMac] = useState('');
 
   const handleImportGoogleMaps = (val: string) => {
     setGoogleMapsInput(val);
@@ -208,6 +209,7 @@ export const AdminPanel = ({ loggedAdmin, onLogout }: { loggedAdmin: AdminUser, 
     setCompanyId('');
     setPosition(null);
     setGoogleMapsInput('');
+    setAllowedMac('');
     setBiometricTemplate(null);
     setWorkStart('');
     setBreakStart('');
@@ -230,6 +232,7 @@ export const AdminPanel = ({ loggedAdmin, onLogout }: { loggedAdmin: AdminUser, 
     setAuthMethod(emp.auth_method || 'both');
     setCompanyId(emp.company_id || '');
     setRadius(emp.allowed_radius !== null && emp.allowed_radius !== undefined ? emp.allowed_radius : 100);
+    setAllowedMac(emp.allowed_mac_address || '');
     setWorkStart(emp.work_start || '');
     setBreakStart(emp.break_start || '');
     setBreakEnd(emp.break_end || '');
@@ -265,6 +268,7 @@ export const AdminPanel = ({ loggedAdmin, onLogout }: { loggedAdmin: AdminUser, 
       allowed_lat: position ? position[0] : null,
       allowed_lng: position ? position[1] : null,
       allowed_radius: radius,
+      allowed_mac_address: allowedMac || null,
       company_id: companyId,
       work_start: workStart || null,
       break_start: breakStart || null,
@@ -487,6 +491,32 @@ export const AdminPanel = ({ loggedAdmin, onLogout }: { loggedAdmin: AdminUser, 
               <div>
                 <label className="block text-xs font-semibold text-industrial-muted mb-1">Raio GPS (m)</label>
                 <input type="number" value={radius} onChange={e => setRadius(e.target.value === '' ? 0 : Number(e.target.value))} className="w-full bg-industrial-bg border border-industrial-border rounded-lg p-2 text-sm focus:outline-none focus:border-cyber-emerald transition-colors" />
+              </div>
+              <div className="col-span-2">
+                <label className="block text-xs font-semibold text-industrial-muted mb-1">Restrição por MAC Address do Computador</label>
+                <div className="flex gap-2">
+                  <input type="text" value={allowedMac} onChange={e => setAllowedMac(e.target.value.toUpperCase())} placeholder="Ex: 00:1A:2B:3C:4D:5E (Vazio = Sem Restrição)" className="flex-1 bg-industrial-bg border border-industrial-border rounded-lg p-2 text-sm focus:outline-none focus:border-cyber-emerald font-mono uppercase" />
+                  <button 
+                    type="button" 
+                    onClick={async () => {
+                      try {
+                        const res = await fetch('http://127.0.0.1:8000/mac-address');
+                        const data = await res.json();
+                        if (data.success && data.macAddress) {
+                          setAllowedMac(data.macAddress.toUpperCase());
+                          alert('MAC Address obtido do servidor local: ' + data.macAddress);
+                        } else {
+                          alert('Não foi possível obter o MAC. O servidor local (server.js) está rodando nesta máquina?');
+                        }
+                      } catch (err) {
+                        alert('Erro ao contatar o servidor local em http://127.0.0.1:8000. Certifique-se de que ele está rodando.');
+                      }
+                    }}
+                    className="bg-white border border-industrial-border text-industrial-text hover:border-cyber-emerald hover:text-cyber-emerald px-4 py-2 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap"
+                  >
+                    Capturar MAC Deste Computador
+                  </button>
+                </div>
               </div>
 
               <div className="col-span-2">
