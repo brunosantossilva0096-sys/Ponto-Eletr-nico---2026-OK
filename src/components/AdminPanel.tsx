@@ -131,6 +131,8 @@ export const AdminPanel = ({ loggedAdmin, onLogout }: { loggedAdmin: AdminUser, 
   const [googleMapsInput, setGoogleMapsInput] = useState('');
   const [position, setPosition] = useState<[number, number] | null>(null);
   const [allowedMac, setAllowedMac] = useState('');
+  const [ignoreGpsOnPc, setIgnoreGpsOnPc] = useState(false);
+  const [macRestrictionEnabled, setMacRestrictionEnabled] = useState(false);
 
   const handleImportGoogleMaps = (val: string) => {
     setGoogleMapsInput(val);
@@ -210,6 +212,8 @@ export const AdminPanel = ({ loggedAdmin, onLogout }: { loggedAdmin: AdminUser, 
     setPosition(null);
     setGoogleMapsInput('');
     setAllowedMac('');
+    setIgnoreGpsOnPc(false);
+    setMacRestrictionEnabled(false);
     setBiometricTemplate(null);
     setWorkStart('');
     setBreakStart('');
@@ -233,6 +237,8 @@ export const AdminPanel = ({ loggedAdmin, onLogout }: { loggedAdmin: AdminUser, 
     setCompanyId(emp.company_id || '');
     setRadius(emp.allowed_radius !== null && emp.allowed_radius !== undefined ? emp.allowed_radius : 100);
     setAllowedMac(emp.allowed_mac_address || '');
+    setIgnoreGpsOnPc(emp.ignore_gps_on_pc || false);
+    setMacRestrictionEnabled(emp.mac_restriction_enabled || false);
     setWorkStart(emp.work_start || '');
     setBreakStart(emp.break_start || '');
     setBreakEnd(emp.break_end || '');
@@ -269,6 +275,8 @@ export const AdminPanel = ({ loggedAdmin, onLogout }: { loggedAdmin: AdminUser, 
       allowed_lng: position ? position[1] : null,
       allowed_radius: radius,
       allowed_mac_address: allowedMac || null,
+      ignore_gps_on_pc: ignoreGpsOnPc,
+      mac_restriction_enabled: macRestrictionEnabled,
       company_id: companyId,
       work_start: workStart || null,
       break_start: breakStart || null,
@@ -492,8 +500,15 @@ export const AdminPanel = ({ loggedAdmin, onLogout }: { loggedAdmin: AdminUser, 
                 <label className="block text-xs font-semibold text-industrial-muted mb-1">Raio GPS (m)</label>
                 <input type="number" value={radius} onChange={e => setRadius(e.target.value === '' ? 0 : Number(e.target.value))} className="w-full bg-industrial-bg border border-industrial-border rounded-lg p-2 text-sm focus:outline-none focus:border-cyber-emerald transition-colors" />
               </div>
+              <div className="flex items-center gap-2 pt-6">
+                <input type="checkbox" checked={ignoreGpsOnPc} onChange={e => setIgnoreGpsOnPc(e.target.checked)} className="rounded border-industrial-border text-cyber-emerald focus:ring-cyber-emerald w-4 h-4" />
+                <label className="text-xs font-semibold text-industrial-muted">Ignorar validação de GPS em Computadores (PC)</label>
+              </div>
               <div className="col-span-2">
-                <label className="block text-xs font-semibold text-industrial-muted mb-1">Restrição por MAC Address do Computador</label>
+                <div className="flex items-center gap-2 mb-2">
+                  <input type="checkbox" checked={macRestrictionEnabled} onChange={e => setMacRestrictionEnabled(e.target.checked)} className="rounded border-industrial-border text-cyber-emerald focus:ring-cyber-emerald w-4 h-4" />
+                  <label className="block text-xs font-semibold text-industrial-muted">Habilitar Restrição por MAC Address do Computador</label>
+                </div>
                 <div className="flex gap-2">
                   <input type="text" value={allowedMac} onChange={e => setAllowedMac(e.target.value.toUpperCase())} placeholder="Ex: 00:1A:2B:3C:4D:5E (Vazio = Sem Restrição)" className="flex-1 bg-industrial-bg border border-industrial-border rounded-lg p-2 text-sm focus:outline-none focus:border-cyber-emerald font-mono uppercase" />
                   <button 

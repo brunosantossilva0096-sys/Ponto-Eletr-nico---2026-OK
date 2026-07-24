@@ -17,6 +17,8 @@ export interface Employee {
   allowed_lng: number | null;
   allowed_radius: number;
   allowed_mac_address?: string | null;
+  ignore_gps_on_pc?: boolean;
+  mac_restriction_enabled?: boolean;
   company_id?: string;
   companies?: Company; // Para queries com JOIN
   

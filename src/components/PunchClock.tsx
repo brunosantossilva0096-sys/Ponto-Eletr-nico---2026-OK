@@ -105,6 +105,13 @@ export const PunchClock = ({ employee, onBack }: { employee: Employee, onBack: (
     
     const instruction = getAuthInstruction();
 
+    const isMobile = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    if (!isMobile && employee.ignore_gps_on_pc) {
+      setStatus('ready');
+      setMessage(instruction);
+      return;
+    }
+
     if (!employee.allowed_lat || !employee.allowed_lng) {
       // Se o admin não configurou, permite de qualquer lugar (fallback)
       setStatus('ready');
@@ -153,7 +160,7 @@ export const PunchClock = ({ employee, onBack }: { employee: Employee, onBack: (
   useEffect(() => {
     if (status !== 'locating' && status !== 'ready') return;
     
-    if (employee.allowed_mac_address) {
+    if (employee.mac_restriction_enabled && employee.allowed_mac_address) {
       const checkMac = async () => {
         try {
           const res = await fetch('http://127.0.0.1:8000/mac-address');
