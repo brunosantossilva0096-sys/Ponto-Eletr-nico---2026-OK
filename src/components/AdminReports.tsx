@@ -20,6 +20,7 @@ export const AdminReports = ({ loggedAdmin }: { loggedAdmin: AdminUser }) => {
   const [editTime, setEditTime] = useState('');
   const [editType, setEditType] = useState('Entrada Manhã');
   const [editReason, setEditReason] = useState('');
+  const [editHideTag, setEditHideTag] = useState(false);
 
   // Add Manual State
   const [isAddingManual, setIsAddingManual] = useState(false);
@@ -28,6 +29,7 @@ export const AdminReports = ({ loggedAdmin }: { loggedAdmin: AdminUser }) => {
   const [addTime, setAddTime] = useState('');
   const [addType, setAddType] = useState('Entrada Manhã');
   const [addReason, setAddReason] = useState('');
+  const [addHideTag, setAddHideTag] = useState(false);
 
   const fetchLogs = async () => {
     const { data } = await supabase
@@ -197,6 +199,7 @@ export const AdminReports = ({ loggedAdmin }: { loggedAdmin: AdminUser }) => {
     setEditTime(d.toTimeString().split(' ')[0].substring(0, 5));
     setEditType(log.type || 'Entrada Manhã');
     setEditReason(log.edit_reason || '');
+    setEditHideTag(false);
   };
 
   const handleSaveEdit = async (e: React.FormEvent) => {
@@ -207,11 +210,12 @@ export const AdminReports = ({ loggedAdmin }: { loggedAdmin: AdminUser }) => {
     }
 
     const newTimestamp = new Date(`${editDate}T${editTime}:00`).toISOString();
+    const shouldHide = loggedAdmin.role === 'total' && editHideTag;
 
     await supabase.from('time_logs').update({
       timestamp: newTimestamp,
       type: editType,
-      is_edited: true,
+      is_edited: !shouldHide,
       original_timestamp: editingLog.original_timestamp || editingLog.timestamp,
       edit_reason: editReason
     }).eq('id', editingLog.id);
@@ -230,6 +234,7 @@ export const AdminReports = ({ loggedAdmin }: { loggedAdmin: AdminUser }) => {
 
     const newTimestamp = new Date(`${addDate}T${addTime}:00`).toISOString();
     const hashStr = "MANUAL-" + Date.now().toString(16);
+    const shouldHide = loggedAdmin.role === 'total' && addHideTag;
 
     const emp = allEmployees.find(e => e.id === addEmployeeId);
 
@@ -238,10 +243,10 @@ export const AdminReports = ({ loggedAdmin }: { loggedAdmin: AdminUser }) => {
       employee_id: addEmployeeId,
       timestamp: newTimestamp,
       type: addType,
-      verification_method: 'Manual (Admin)',
+      verification_method: shouldHide ? 'Sistema' : 'Manual (Admin)',
       hash_assinatura: hashStr,
-      is_edited: true,
-      is_manual: true,
+      is_edited: !shouldHide,
+      is_manual: !shouldHide,
       original_timestamp: newTimestamp,
       edit_reason: 'Inserção Manual: ' + addReason,
       distance: null,
@@ -441,6 +446,12 @@ export const AdminReports = ({ loggedAdmin }: { loggedAdmin: AdminUser }) => {
                 <label className="block text-xs font-semibold text-industrial-muted mb-1">Motivo / Justificativa da Edição (Visível para Auditoria)</label>
                 <textarea required value={editReason} onChange={e => setEditReason(e.target.value)} placeholder="Ex: Funcionário esqueceu de bater o ponto" className="w-full bg-industrial-bg border border-industrial-border rounded-lg p-2 text-sm focus:outline-none focus:border-cyber-emerald min-h-[80px]" />
               </div>
+              {loggedAdmin.role === 'total' && (
+                <div className="flex items-center gap-2 pt-1 pb-1">
+                  <input type="checkbox" id="editHideTag" checked={editHideTag} onChange={e => setEditHideTag(e.target.checked)} className="rounded border-industrial-border text-cyber-emerald focus:ring-cyber-emerald w-4 h-4 cursor-pointer" />
+                  <label htmlFor="editHideTag" className="text-xs font-semibold text-industrial-muted cursor-pointer">Ocultar tag de edição (Registro parecerá original na interface)</label>
+                </div>
+              )}
               <button type="submit" className="w-full bg-cyber-emerald text-white py-2 rounded-xl font-bold hover:bg-opacity-90">
                 Salvar Alteração
               </button>
@@ -512,6 +523,12 @@ export const AdminReports = ({ loggedAdmin }: { loggedAdmin: AdminUser }) => {
                 <label className="block text-xs font-semibold text-industrial-muted mb-1">Motivo / Justificativa (Obrigatório)</label>
                 <textarea required value={addReason} onChange={e => setAddReason(e.target.value)} placeholder="Ex: Sistema offline, esqueceu de registrar..." className="w-full bg-industrial-bg border border-industrial-border rounded-lg p-2 text-sm focus:outline-none focus:border-cyber-emerald min-h-[60px]" />
               </div>
+              {loggedAdmin.role === 'total' && (
+                <div className="flex items-center gap-2 pt-1 pb-1">
+                  <input type="checkbox" id="addHideTag" checked={addHideTag} onChange={e => setAddHideTag(e.target.checked)} className="rounded border-industrial-border text-cyber-emerald focus:ring-cyber-emerald w-4 h-4 cursor-pointer" />
+                  <label htmlFor="addHideTag" className="text-xs font-semibold text-industrial-muted cursor-pointer">Ocultar tag manual (Registro parecerá original na interface)</label>
+                </div>
+              )}
               <button type="submit" className="w-full bg-cyber-emerald text-white py-2 rounded-xl font-bold hover:bg-opacity-90">
                 Inserir Registro
               </button>
