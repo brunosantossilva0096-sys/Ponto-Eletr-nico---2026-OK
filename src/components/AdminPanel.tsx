@@ -132,7 +132,6 @@ export const AdminPanel = ({ loggedAdmin, onLogout }: { loggedAdmin: AdminUser, 
   const [googleMapsInput, setGoogleMapsInput] = useState('');
   const [position, setPosition] = useState<[number, number] | null>(null);
   const [allowedMac, setAllowedMac] = useState('');
-  const [allowedMobileDevice, setAllowedMobileDevice] = useState('');
   const [ignoreGpsOnPc, setIgnoreGpsOnPc] = useState(false);
   const [macRestrictionEnabled, setMacRestrictionEnabled] = useState(false);
   const [blockMobileAccess, setBlockMobileAccess] = useState(false);
@@ -220,7 +219,6 @@ export const AdminPanel = ({ loggedAdmin, onLogout }: { loggedAdmin: AdminUser, 
     setPosition(null);
     setGoogleMapsInput('');
     setAllowedMac('');
-    setAllowedMobileDevice('');
     setIgnoreGpsOnPc(false);
     setMacRestrictionEnabled(false);
     setBlockMobileAccess(false);
@@ -249,7 +247,6 @@ export const AdminPanel = ({ loggedAdmin, onLogout }: { loggedAdmin: AdminUser, 
     setCompanyId(emp.company_id || '');
     setRadius(emp.allowed_radius !== null && emp.allowed_radius !== undefined ? emp.allowed_radius : 100);
     setAllowedMac(emp.allowed_mac_address || '');
-    setAllowedMobileDevice(emp.allowed_mobile_device_id || '');
     setIgnoreGpsOnPc(emp.ignore_gps_on_pc || false);
     setMacRestrictionEnabled(emp.mac_restriction_enabled || false);
     setBlockMobileAccess(emp.block_mobile_access || false);
@@ -290,7 +287,6 @@ export const AdminPanel = ({ loggedAdmin, onLogout }: { loggedAdmin: AdminUser, 
       allowed_lng: position ? position[1] : null,
       allowed_radius: radius,
       allowed_mac_address: allowedMac || null,
-      allowed_mobile_device_id: allowedMobileDevice || null,
       ignore_gps_on_pc: ignoreGpsOnPc,
       mac_restriction_enabled: macRestrictionEnabled,
       block_mobile_access: blockMobileAccess,
@@ -564,15 +560,6 @@ export const AdminPanel = ({ loggedAdmin, onLogout }: { loggedAdmin: AdminUser, 
                     Capturar MAC Deste Computador
                   </button>
                 </div>
-              </div>
-              <div className="col-span-2">
-                <div className="flex items-center gap-2 mb-2">
-                  <label className="block text-xs font-semibold text-industrial-muted">Restrição por UUID de Dispositivo Móvel (Celular)</label>
-                </div>
-                <div className="flex gap-2">
-                  <input type="text" value={allowedMobileDevice} onChange={e => setAllowedMobileDevice(e.target.value)} placeholder="Ex: 550e8400-e29b-41d4-a716-446655440000 (Vazio = Permitir qualquer celular)" className="flex-1 bg-industrial-bg border border-industrial-border rounded-lg p-2 text-sm focus:outline-none focus:border-cyber-emerald font-mono" />
-                </div>
-                <p className="text-[10px] text-industrial-muted mt-1">Este código será mostrado no celular do funcionário ao tentar bater o ponto pela primeira vez, caso restrito.</p>
               </div>
 
               <div className="col-span-2">
