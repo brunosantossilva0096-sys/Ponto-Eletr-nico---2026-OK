@@ -162,6 +162,7 @@ export const AdminPanel = ({ loggedAdmin, onLogout }: { loggedAdmin: AdminUser, 
   const [radius, setRadius] = useState(100);
   const [biometricTemplate, setBiometricTemplate] = useState<string | null>(null);
   const [hasWebAuthn, setHasWebAuthn] = useState<boolean>(false);
+  const [pendingWebAuthn, setPendingWebAuthn] = useState<{credentialId: string, publicKey: string} | null>(null);
   const [isCapturing, setIsCapturing] = useState(false);
   const [workStart, setWorkStart] = useState('');
   const [breakStart, setBreakStart] = useState('');
@@ -225,6 +226,7 @@ export const AdminPanel = ({ loggedAdmin, onLogout }: { loggedAdmin: AdminUser, 
     setBlockMobileAccess(false);
     setBiometricTemplate(null);
     setHasWebAuthn(false);
+    setPendingWebAuthn(null);
     setWorkStart('');
     setBreakStart('');
     setBreakEnd('');
@@ -260,6 +262,7 @@ export const AdminPanel = ({ loggedAdmin, onLogout }: { loggedAdmin: AdminUser, 
     setScheduleType(emp.schedule_type || 'standard');
     setCustomSchedule(emp.custom_schedule && Object.keys(emp.custom_schedule).length > 0 ? emp.custom_schedule : DEFAULT_CUSTOM);
     setBiometricTemplate(null);
+    setPendingWebAuthn(null);
     fetchBiometric(emp.id);
     setGoogleMapsInput('');
     
@@ -327,6 +330,15 @@ export const AdminPanel = ({ loggedAdmin, onLogout }: { loggedAdmin: AdminUser, 
       } else {
         await supabase.from('biometric_templates').insert([{ employee_id: empId, user_id: pis || cpf, template: biometricTemplate }]);
       }
+    }
+    
+    if (empId && pendingWebAuthn) {
+      await supabase.from('webauthn_credentials').delete().eq('employee_id', empId);
+      await supabase.from('webauthn_credentials').insert([{
+        employee_id: empId,
+        credential_id: pendingWebAuthn.credentialId,
+        public_key: pendingWebAuthn.publicKey
+      }]);
     }
     
     alert('Funcionário salvo com sucesso!');
@@ -782,11 +794,11 @@ export const AdminPanel = ({ loggedAdmin, onLogout }: { loggedAdmin: AdminUser, 
                     <Smartphone size={16} className="text-cyber-emerald" /> Biometria Web (WebAuthn / Celular)
                   </label>
                   <p className="text-xs text-industrial-muted mt-1">
-                    {hasWebAuthn ? 'Dispositivo WebAuthn (Passkey) cadastrado.' : 'Nenhum dispositivo WebAuthn cadastrado.'}
+                    {pendingWebAuthn ? 'Dispositivo WebAuthn capturado! Salve para finalizar.' : hasWebAuthn ? 'Dispositivo WebAuthn cadastrado no sistema.' : 'Nenhum dispositivo WebAuthn cadastrado.'}
                   </p>
                 </div>
                 <div className="flex gap-2">
-                  {hasWebAuthn && selectedEmployee && (
+                  {hasWebAuthn && selectedEmployee && !pendingWebAuthn && (
                     <button
                       type="button"
                       onClick={async () => {
@@ -801,34 +813,22 @@ export const AdminPanel = ({ loggedAdmin, onLogout }: { loggedAdmin: AdminUser, 
                       Remover WebAuthn
                     </button>
                   )}
-                  {selectedEmployee && (
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        const result = await registerWebAuthn(selectedEmployee.name, selectedEmployee.id);
-                        if (result) {
-                          // Se já tinha, remove o antigo
-                          await supabase.from('webauthn_credentials').delete().eq('employee_id', selectedEmployee.id);
-                          
-                          const { error } = await supabase.from('webauthn_credentials').insert([{
-                            employee_id: selectedEmployee.id,
-                            credential_id: result.credentialId,
-                            public_key: result.publicKey
-                          }]);
-                          
-                          if (error) {
-                            alert('Erro ao salvar no banco: ' + error.message);
-                          } else {
-                            setHasWebAuthn(true);
-                            alert('Biometria WebAuthn cadastrada com sucesso!');
-                          }
-                        }
-                      }}
-                      className="bg-industrial-bg border border-industrial-border px-4 py-2 rounded-lg text-sm font-semibold hover:border-cyber-emerald hover:text-cyber-emerald transition-colors"
-                    >
-                      {hasWebAuthn ? 'Substituir' : 'Cadastrar Aparelho Atual'}
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const tempId = selectedEmployee?.id || crypto.randomUUID();
+                      const tempName = name || 'Novo Funcionário';
+                      const result = await registerWebAuthn(tempName, tempId);
+                      if (result) {
+                        setPendingWebAuthn(result);
+                        alert('Aparelho capturado com sucesso! Salve o funcionário para finalizar.');
+                      }
+                    }}
+                    className="bg-white border border-industrial-border px-4 py-2 rounded-lg text-sm font-semibold hover:border-cyber-emerald hover:text-cyber-emerald transition-colors flex items-center gap-2"
+                  >
+                    {pendingWebAuthn ? 'Substituir' : hasWebAuthn ? 'Substituir' : 'Cadastrar Aparelho Atual'}
+                    {pendingWebAuthn && <CheckCircle2 size={16} className="text-green-500" />}
+                  </button>
                 </div>
               </div>
             </div>
