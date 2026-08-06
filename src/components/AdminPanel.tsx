@@ -4,7 +4,7 @@ import { Employee, Company } from '../types';
 import { MapContainer, TileLayer, Marker, Circle, useMapEvents, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
-import { Download, AlertTriangle, Fingerprint, Lock, Shield, MapPin, Search, Plus, Trash2, Edit2, Key, HelpCircle, Navigation, Settings, Smartphone, Users, ArrowLeft, CheckCircle2, FileText } from 'lucide-react';
+import { Download, AlertTriangle, Fingerprint, Lock, Shield, MapPin, Search, Plus, Trash2, Edit2, Key, HelpCircle, Navigation, Settings, Smartphone, Users, ArrowLeft, CheckCircle2, FileText, Save } from 'lucide-react';
 import { registerWebAuthn } from '../utils/webauthn';
 import { AdminReports } from './AdminReports';
 import { AdminCompanies } from './AdminCompanies';
