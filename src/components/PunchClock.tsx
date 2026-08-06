@@ -494,7 +494,7 @@ export const PunchClock = ({ employee, onBack }: { employee: Employee, onBack: (
                     className="w-full py-4 rounded-2xl bg-cyber-emerald text-white font-bold flex items-center justify-center gap-2 hover:bg-opacity-90 transition-all shadow-lg shadow-cyber-emerald/20"
                   >
                     {facialTemplate && !webAuthnCredentialId ? <Camera size={24} /> : <Fingerprint size={24} />} 
-                    {facialTemplate && !webAuthnCredentialId ? 'Reconhecimento Facial' : 'Leitura de Digital'}
+                    {facialTemplate && !webAuthnCredentialId ? 'Reconhecimento Facial' : 'Reconhecimento de Biometria'}
                   </button>
                 </div>
               )}
