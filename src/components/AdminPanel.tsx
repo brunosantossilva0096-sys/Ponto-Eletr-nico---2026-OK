@@ -330,11 +330,15 @@ export const AdminPanel = ({ loggedAdmin, onLogout }: { loggedAdmin: AdminUser, 
     
     if (empId && pendingWebAuthn) {
       await supabase.from('webauthn_credentials').delete().eq('employee_id', empId);
-      await supabase.from('webauthn_credentials').insert([{
+      const { error: webauthnError } = await supabase.from('webauthn_credentials').insert([{
         employee_id: empId,
         credential_id: pendingWebAuthn.credentialId,
         public_key: pendingWebAuthn.publicKey
       }]);
+      if (webauthnError) {
+        alert('Erro ao salvar biometria web no banco (A tabela webauthn_credentials foi criada?):\n' + webauthnError.message);
+        return;
+      }
     }
     
     alert('Funcionário salvo com sucesso!');
