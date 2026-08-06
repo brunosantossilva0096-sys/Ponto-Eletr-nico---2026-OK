@@ -97,11 +97,10 @@ export async function authenticateWebAuthn(credentialIdStr: string): Promise<boo
         allowCredentials: [
           {
             type: 'public-key',
-            id: base64urlToBuffer(credentialIdStr),
-            transports: ['internal']
+            id: base64urlToBuffer(credentialIdStr)
           }
         ],
-        userVerification: 'required',
+        userVerification: 'preferred',
         timeout: 60000
       }
     });
