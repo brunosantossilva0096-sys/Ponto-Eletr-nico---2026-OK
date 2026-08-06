@@ -4,7 +4,8 @@ import { Employee, Company } from '../types';
 import { MapContainer, TileLayer, Marker, Circle, useMapEvents, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
-import { Users, MapPin, Save, Plus, ArrowLeft, Search, Navigation, Fingerprint, CheckCircle2, Trash2, Edit2, FileText } from 'lucide-react';
+import { Download, AlertTriangle, Fingerprint, Lock, Shield, MapPin, Search, Plus, Trash2, Edit2, Key, HelpCircle, Navigation, Settings, Smartphone, Users, ArrowLeft, CheckCircle2, FileText } from 'lucide-react';
+import { registerWebAuthn } from '../utils/webauthn';
 import { AdminReports } from './AdminReports';
 import { AdminCompanies } from './AdminCompanies';
 import { AdminHolidays } from './AdminHolidays';
@@ -160,6 +161,7 @@ export const AdminPanel = ({ loggedAdmin, onLogout }: { loggedAdmin: AdminUser, 
   };
   const [radius, setRadius] = useState(100);
   const [biometricTemplate, setBiometricTemplate] = useState<string | null>(null);
+  const [hasWebAuthn, setHasWebAuthn] = useState<boolean>(false);
   const [isCapturing, setIsCapturing] = useState(false);
   const [workStart, setWorkStart] = useState('');
   const [breakStart, setBreakStart] = useState('');
@@ -197,9 +199,12 @@ export const AdminPanel = ({ loggedAdmin, onLogout }: { loggedAdmin: AdminUser, 
   }, []);
 
   const fetchBiometric = async (empId: string) => {
-    const { data } = await supabase.from('biometric_templates').select('template').eq('employee_id', empId).maybeSingle();
-    if (data) setBiometricTemplate(data.template);
+    const { data: secugenData } = await supabase.from('biometric_templates').select('template').eq('employee_id', empId).maybeSingle();
+    if (secugenData) setBiometricTemplate(secugenData.template);
     else setBiometricTemplate(null);
+
+    const { data: webauthnData } = await supabase.from('webauthn_credentials').select('id').eq('employee_id', empId).maybeSingle();
+    setHasWebAuthn(!!webauthnData);
   };
 
   const resetForm = () => {
@@ -219,6 +224,7 @@ export const AdminPanel = ({ loggedAdmin, onLogout }: { loggedAdmin: AdminUser, 
     setMacRestrictionEnabled(false);
     setBlockMobileAccess(false);
     setBiometricTemplate(null);
+    setHasWebAuthn(false);
     setWorkStart('');
     setBreakStart('');
     setBreakEnd('');
@@ -768,6 +774,62 @@ export const AdminPanel = ({ loggedAdmin, onLogout }: { loggedAdmin: AdminUser, 
                   {isCapturing ? 'Lendo Dedo...' : (biometricTemplate ? 'Substituir Digital' : 'Cadastrar Digital')}
                   {biometricTemplate && !isCapturing && <CheckCircle2 size={16} className="text-green-500" />}
                 </button>
+              </div>
+
+              <div className="flex justify-between items-center mt-4 pt-4 border-t border-industrial-border/50">
+                <div>
+                  <label className="block text-sm font-bold text-industrial-text flex items-center gap-2">
+                    <Smartphone size={16} className="text-cyber-emerald" /> Biometria Web (WebAuthn / Celular)
+                  </label>
+                  <p className="text-xs text-industrial-muted mt-1">
+                    {hasWebAuthn ? 'Dispositivo WebAuthn (Passkey) cadastrado.' : 'Nenhum dispositivo WebAuthn cadastrado.'}
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  {hasWebAuthn && selectedEmployee && (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (confirm('Tem certeza que deseja remover o celular/WebAuthn deste funcionário?')) {
+                          await supabase.from('webauthn_credentials').delete().eq('employee_id', selectedEmployee.id);
+                          setHasWebAuthn(false);
+                          alert('Biometria WebAuthn removida!');
+                        }
+                      }}
+                      className="bg-red-500/10 text-red-500 border border-red-500/50 px-4 py-2 rounded-lg text-sm font-semibold hover:bg-red-500 hover:text-white transition-colors"
+                    >
+                      Remover WebAuthn
+                    </button>
+                  )}
+                  {selectedEmployee && (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const result = await registerWebAuthn(selectedEmployee.name, selectedEmployee.id);
+                        if (result) {
+                          // Se já tinha, remove o antigo
+                          await supabase.from('webauthn_credentials').delete().eq('employee_id', selectedEmployee.id);
+                          
+                          const { error } = await supabase.from('webauthn_credentials').insert([{
+                            employee_id: selectedEmployee.id,
+                            credential_id: result.credentialId,
+                            public_key: result.publicKey
+                          }]);
+                          
+                          if (error) {
+                            alert('Erro ao salvar no banco: ' + error.message);
+                          } else {
+                            setHasWebAuthn(true);
+                            alert('Biometria WebAuthn cadastrada com sucesso!');
+                          }
+                        }
+                      }}
+                      className="bg-industrial-bg border border-industrial-border px-4 py-2 rounded-lg text-sm font-semibold hover:border-cyber-emerald hover:text-cyber-emerald transition-colors"
+                    >
+                      {hasWebAuthn ? 'Substituir' : 'Cadastrar Aparelho Atual'}
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
 

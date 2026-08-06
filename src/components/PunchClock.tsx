@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabaseClient';
 import { Employee, TimeLog } from '../types';
-import { MapPin, Fingerprint, KeyRound, AlertTriangle, ArrowLeft, CheckCircle2, FileText, LogIn, LogOut, Coffee, Moon } from 'lucide-react';
+import { MapPin, Fingerprint, KeyRound, AlertTriangle, ArrowLeft, CheckCircle2, FileText, LogIn, LogOut, Coffee, Moon, ShieldCheck } from 'lucide-react';
 import { motion } from 'motion/react';
 import { EmployeeReports } from './EmployeeReports';
+import { authenticateWebAuthn } from '../utils/webauthn';
 
 const PUNCH_TYPES = [
   { type: 'Entrada Manhã', label: 'Entrada Manhã', icon: LogIn, color: 'text-cyber-emerald', bg: 'bg-cyber-emerald/10' },
@@ -42,7 +43,17 @@ export const PunchClock = ({ employee, onBack }: { employee: Employee, onBack: (
   const [showReports, setShowReports] = useState(false);
   const [viewReportsAuth, setViewReportsAuth] = useState(false);
   const [reportsPinInput, setReportsPinInput] = useState('');
-  
+  const [webAuthnCredentialId, setWebAuthnCredentialId] = useState<string | null>(null);
+
+  useEffect(() => {
+    // Buscar se o funcionário tem WebAuthn
+    const checkWebAuthn = async () => {
+      const { data } = await supabase.from('webauthn_credentials').select('credential_id').eq('employee_id', employee.id).maybeSingle();
+      if (data) setWebAuthnCredentialId(data.credential_id);
+    };
+    checkWebAuthn();
+  }, [employee]);
+
   // Punch type detection
   const [todayLogs, setTodayLogs] = useState<TimeLog[]>([]);
   const [punchIndex, setPunchIndex] = useState(0);
@@ -293,6 +304,19 @@ export const PunchClock = ({ employee, onBack }: { employee: Employee, onBack: (
     }
   };
 
+  const handleWebAuthnPunch = async () => {
+    if (!webAuthnCredentialId) return;
+    setStatus('verifying');
+    setMessage('Aguardando Biometria/Passkey...');
+    const success = await authenticateWebAuthn(webAuthnCredentialId);
+    if (success) {
+      await recordTimeLog('Biometria WebAuthn');
+    } else {
+      setStatus('error');
+      setMessage('Falha na autenticação biométrica (WebAuthn).');
+    }
+  };
+
   const handlePinAuth = () => {
     if (pinInput !== employee.pin) {
       alert('Senha incorreta!');
@@ -394,12 +418,22 @@ export const PunchClock = ({ employee, onBack }: { employee: Employee, onBack: (
               )}
 
               {status === 'ready' && (!usePin || strictPinVerified) && authMethod !== 'pin' && (
-                <button 
-                  onClick={handleFingerprint}
-                  className="w-full py-4 rounded-2xl bg-cyber-emerald text-white font-bold flex items-center justify-center gap-2 hover:bg-opacity-90 transition-all shadow-lg shadow-cyber-emerald/20"
-                >
-                  <Fingerprint size={24} /> Registrar {currentPunch.label}
-                </button>
+                <div className="flex flex-col gap-3">
+                  <button 
+                    onClick={handleFingerprint}
+                    className="w-full py-4 rounded-2xl bg-cyber-emerald text-white font-bold flex items-center justify-center gap-2 hover:bg-opacity-90 transition-all shadow-lg shadow-cyber-emerald/20"
+                  >
+                    <Fingerprint size={24} /> SecuGen (USB)
+                  </button>
+                  {webAuthnCredentialId && (
+                    <button 
+                      onClick={handleWebAuthnPunch}
+                      className="w-full py-4 rounded-2xl bg-industrial-text text-white font-bold flex items-center justify-center gap-2 hover:bg-opacity-90 transition-all shadow-lg"
+                    >
+                      <Smartphone size={24} /> Biometria Celular/PC
+                    </button>
+                  )}
+                </div>
               )}
               
               {status === 'ready' && (usePin || authMethod === 'strict' && !strictPinVerified) && (
