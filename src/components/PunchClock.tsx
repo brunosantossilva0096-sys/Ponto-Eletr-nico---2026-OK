@@ -317,6 +317,14 @@ export const PunchClock = ({ employee, onBack }: { employee: Employee, onBack: (
     }
   };
 
+  const handleAutomaticBiometric = () => {
+    if (webAuthnCredentialId) {
+      handleWebAuthnPunch();
+    } else {
+      handleFingerprint();
+    }
+  };
+
   const handlePinAuth = () => {
     if (pinInput !== employee.pin) {
       alert('Senha incorreta!');
@@ -420,19 +428,11 @@ export const PunchClock = ({ employee, onBack }: { employee: Employee, onBack: (
               {status === 'ready' && (!usePin || strictPinVerified) && authMethod !== 'pin' && (
                 <div className="flex flex-col gap-3">
                   <button 
-                    onClick={handleFingerprint}
+                    onClick={handleAutomaticBiometric}
                     className="w-full py-4 rounded-2xl bg-cyber-emerald text-white font-bold flex items-center justify-center gap-2 hover:bg-opacity-90 transition-all shadow-lg shadow-cyber-emerald/20"
                   >
-                    <Fingerprint size={24} /> SecuGen (USB)
+                    <Fingerprint size={24} /> Leitura de Digital
                   </button>
-                  {webAuthnCredentialId && (
-                    <button 
-                      onClick={handleWebAuthnPunch}
-                      className="w-full py-4 rounded-2xl bg-industrial-text text-white font-bold flex items-center justify-center gap-2 hover:bg-opacity-90 transition-all shadow-lg"
-                    >
-                      <Smartphone size={24} /> Biometria Celular/PC
-                    </button>
-                  )}
                 </div>
               )}
               
