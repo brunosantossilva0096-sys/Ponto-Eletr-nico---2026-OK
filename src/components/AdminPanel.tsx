@@ -4,8 +4,9 @@ import { Employee, Company } from '../types';
 import { MapContainer, TileLayer, Marker, Circle, useMapEvents, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
-import { Download, AlertTriangle, Fingerprint, Lock, Shield, MapPin, Search, Plus, Trash2, Edit2, Key, HelpCircle, Navigation, Settings, Smartphone, Users, ArrowLeft, CheckCircle2, FileText, Save } from 'lucide-react';
+import { Download, AlertTriangle, Fingerprint, Lock, Shield, MapPin, Search, Plus, Trash2, Edit2, Key, HelpCircle, Navigation, Settings, Smartphone, Users, ArrowLeft, CheckCircle2, FileText, Save, Camera } from 'lucide-react';
 import { registerWebAuthn } from '../utils/webauthn';
+import { loadModels, getFaceDescriptor } from '../utils/faceApi';
 import { AdminReports } from './AdminReports';
 import { AdminCompanies } from './AdminCompanies';
 import { AdminHolidays } from './AdminHolidays';
@@ -162,6 +163,14 @@ export const AdminPanel = ({ loggedAdmin, onLogout }: { loggedAdmin: AdminUser, 
   const [biometricTemplate, setBiometricTemplate] = useState<string | null>(null);
   const [hasWebAuthn, setHasWebAuthn] = useState<boolean>(false);
   const [pendingWebAuthn, setPendingWebAuthn] = useState<{credentialId: string, publicKey: string} | null>(null);
+  
+  // Facial Biometry states
+  const [hasFacialTemplate, setHasFacialTemplate] = useState<boolean>(false);
+  const [pendingFacialDescriptor, setPendingFacialDescriptor] = useState<Float32Array | null>(null);
+  const [isCameraOpen, setIsCameraOpen] = useState(false);
+  const [isCapturingFace, setIsCapturingFace] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+
   const [isCapturing, setIsCapturing] = useState(false);
   const [workStart, setWorkStart] = useState('');
   const [breakStart, setBreakStart] = useState('');
@@ -196,6 +205,7 @@ export const AdminPanel = ({ loggedAdmin, onLogout }: { loggedAdmin: AdminUser, 
   useEffect(() => {
     fetchEmployees();
     fetchCompanies();
+    loadModels();
   }, []);
 
   const fetchBiometric = async (empId: string) => {
@@ -205,6 +215,9 @@ export const AdminPanel = ({ loggedAdmin, onLogout }: { loggedAdmin: AdminUser, 
 
     const { data: webauthnData } = await supabase.from('webauthn_credentials').select('id').eq('employee_id', empId).maybeSingle();
     setHasWebAuthn(!!webauthnData);
+
+    const { data: facialData } = await supabase.from('facial_templates').select('id').eq('employee_id', empId).maybeSingle();
+    setHasFacialTemplate(!!facialData);
   };
 
   const resetForm = () => {
@@ -225,6 +238,8 @@ export const AdminPanel = ({ loggedAdmin, onLogout }: { loggedAdmin: AdminUser, 
     setBiometricTemplate(null);
     setHasWebAuthn(false);
     setPendingWebAuthn(null);
+    setHasFacialTemplate(false);
+    setPendingFacialDescriptor(null);
     setWorkStart('');
     setBreakStart('');
     setBreakEnd('');
@@ -260,6 +275,9 @@ export const AdminPanel = ({ loggedAdmin, onLogout }: { loggedAdmin: AdminUser, 
     setCustomSchedule(emp.custom_schedule && Object.keys(emp.custom_schedule).length > 0 ? emp.custom_schedule : DEFAULT_CUSTOM);
     setBiometricTemplate(null);
     setPendingWebAuthn(null);
+    setHasFacialTemplate(false);
+    setPendingFacialDescriptor(null);
+    if (isCameraOpen) closeCamera();
     fetchBiometric(emp.id);
     setGoogleMapsInput('');
     
@@ -340,10 +358,57 @@ export const AdminPanel = ({ loggedAdmin, onLogout }: { loggedAdmin: AdminUser, 
         return;
       }
     }
+
+    if (empId && pendingFacialDescriptor) {
+      await supabase.from('facial_templates').delete().eq('employee_id', empId);
+      const { error: facialError } = await supabase.from('facial_templates').insert([{
+        employee_id: empId,
+        descriptor: JSON.stringify(Array.from(pendingFacialDescriptor))
+      }]);
+      if (facialError) {
+        alert('Erro ao salvar biometria facial:\n' + facialError.message);
+        return;
+      }
+    }
     
     alert('Funcionário salvo com sucesso!');
     resetForm();
     fetchEmployees();
+  };
+
+  const startCamera = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        setIsCameraOpen(true);
+      }
+    } catch (err) {
+      alert("Erro ao acessar câmera: " + err);
+    }
+  };
+
+  const closeCamera = () => {
+    if (videoRef.current && videoRef.current.srcObject) {
+      const stream = videoRef.current.srcObject as MediaStream;
+      stream.getTracks().forEach(track => track.stop());
+      videoRef.current.srcObject = null;
+    }
+    setIsCameraOpen(false);
+  };
+
+  const captureFace = async () => {
+    if (!videoRef.current) return;
+    setIsCapturingFace(true);
+    const descriptor = await getFaceDescriptor(videoRef.current);
+    setIsCapturingFace(false);
+    if (descriptor) {
+      setPendingFacialDescriptor(descriptor);
+      closeCamera();
+      alert("Rosto capturado com sucesso! Salve o funcionário para finalizar.");
+    } else {
+      alert("Não foi possível detectar um rosto na imagem. Tente melhorar a iluminação e olhar para a câmera.");
+    }
   };
 
   const handleDeleteEmployee = async () => {
@@ -820,6 +885,59 @@ export const AdminPanel = ({ loggedAdmin, onLogout }: { loggedAdmin: AdminUser, 
                     {pendingWebAuthn ? 'Substituir' : hasWebAuthn ? 'Substituir' : 'Cadastrar Aparelho Atual'}
                     {pendingWebAuthn && <CheckCircle2 size={16} className="text-green-500" />}
                   </button>
+                </div>
+              </div>
+
+              {/* Facial Biometry Section */}
+              <div className="flex justify-between items-start mt-4 pt-4 border-t border-industrial-border/50">
+                <div>
+                  <label className="block text-sm font-bold text-industrial-text flex items-center gap-2">
+                    <Camera size={16} className="text-cyber-emerald" /> Biometria Facial (Câmera)
+                  </label>
+                  <p className="text-xs text-industrial-muted mt-1">
+                    {pendingFacialDescriptor ? 'Rosto capturado! Salve para finalizar.' : hasFacialTemplate ? 'Biometria facial cadastrada no sistema.' : 'Nenhuma biometria facial cadastrada.'}
+                  </p>
+                  
+                  {isCameraOpen && (
+                    <div className="mt-4 flex flex-col gap-2 border border-industrial-border rounded-lg overflow-hidden relative" style={{width: 320, height: 240}}>
+                      <video ref={videoRef} autoPlay muted playsInline style={{width: '100%', height: '100%', objectFit: 'cover'}} />
+                      <div className="absolute bottom-2 w-full flex justify-center gap-2 px-2">
+                        <button onClick={captureFace} disabled={isCapturingFace} className="bg-cyber-emerald text-white px-4 py-2 rounded-lg text-sm font-bold flex-1 shadow-md">
+                          {isCapturingFace ? 'Processando...' : 'Capturar Rosto'}
+                        </button>
+                        <button onClick={closeCamera} className="bg-white text-red-500 px-4 py-2 rounded-lg text-sm font-bold shadow-md">
+                          Cancelar
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  {hasFacialTemplate && selectedEmployee && !pendingFacialDescriptor && (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (confirm('Tem certeza que deseja remover a biometria facial deste funcionário?')) {
+                          await supabase.from('facial_templates').delete().eq('employee_id', selectedEmployee.id);
+                          setHasFacialTemplate(false);
+                          alert('Biometria facial removida!');
+                        }
+                      }}
+                      className="bg-red-500/10 text-red-500 border border-red-500/50 px-4 py-2 rounded-lg text-sm font-semibold hover:bg-red-500 hover:text-white transition-colors"
+                    >
+                      Remover Facial
+                    </button>
+                  )}
+                  {!isCameraOpen && (
+                    <button
+                      type="button"
+                      onClick={startCamera}
+                      className="bg-white border border-industrial-border px-4 py-2 rounded-lg text-sm font-semibold hover:border-cyber-emerald hover:text-cyber-emerald transition-colors flex items-center gap-2"
+                    >
+                      {pendingFacialDescriptor ? 'Recapturar Rosto' : hasFacialTemplate ? 'Substituir Rosto' : 'Abrir Câmera'}
+                      {pendingFacialDescriptor && <CheckCircle2 size={16} className="text-green-500" />}
+                    </button>
+                  )}
                 </div>
               </div>
             </div>

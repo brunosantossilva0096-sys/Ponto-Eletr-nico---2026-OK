@@ -1,10 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import { Employee, TimeLog } from '../types';
-import { MapPin, Fingerprint, KeyRound, AlertTriangle, ArrowLeft, CheckCircle2, FileText, LogIn, LogOut, Coffee, Moon, ShieldCheck } from 'lucide-react';
+import { MapPin, Fingerprint, KeyRound, AlertTriangle, ArrowLeft, CheckCircle2, FileText, LogIn, LogOut, Coffee, Moon, ShieldCheck, Camera } from 'lucide-react';
 import { motion } from 'motion/react';
 import { EmployeeReports } from './EmployeeReports';
 import { authenticateWebAuthn } from '../utils/webauthn';
+import { getFaceDescriptor, compareFaces } from '../utils/faceApi';
 
 const PUNCH_TYPES = [
   { type: 'Entrada Manhã', label: 'Entrada Manhã', icon: LogIn, color: 'text-cyber-emerald', bg: 'bg-cyber-emerald/10' },
@@ -45,13 +46,24 @@ export const PunchClock = ({ employee, onBack }: { employee: Employee, onBack: (
   const [reportsPinInput, setReportsPinInput] = useState('');
   const [webAuthnCredentialId, setWebAuthnCredentialId] = useState<string | null>(null);
 
+  // Facial state
+  const [facialTemplate, setFacialTemplate] = useState<Float32Array | null>(null);
+  const [isCameraOpen, setIsCameraOpen] = useState(false);
+  const [isVerifyingFace, setIsVerifyingFace] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+
   useEffect(() => {
-    // Buscar se o funcionário tem WebAuthn
-    const checkWebAuthn = async () => {
-      const { data } = await supabase.from('webauthn_credentials').select('credential_id').eq('employee_id', employee.id).maybeSingle();
-      if (data) setWebAuthnCredentialId(data.credential_id);
+    // Buscar se o funcionário tem WebAuthn e/ou Facial
+    const checkBiometrics = async () => {
+      const { data: webauthn } = await supabase.from('webauthn_credentials').select('credential_id').eq('employee_id', employee.id).maybeSingle();
+      if (webauthn) setWebAuthnCredentialId(webauthn.credential_id);
+
+      const { data: facial } = await supabase.from('facial_templates').select('descriptor').eq('employee_id', employee.id).maybeSingle();
+      if (facial && facial.descriptor) {
+        setFacialTemplate(new Float32Array(JSON.parse(facial.descriptor)));
+      }
     };
-    checkWebAuthn();
+    checkBiometrics();
   }, [employee]);
 
   // Punch type detection
@@ -320,8 +332,56 @@ export const PunchClock = ({ employee, onBack }: { employee: Employee, onBack: (
   const handleAutomaticBiometric = () => {
     if (webAuthnCredentialId) {
       handleWebAuthnPunch();
+    } else if (facialTemplate) {
+      startCamera();
     } else {
       handleFingerprint();
+    }
+  };
+
+  const startCamera = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        setIsCameraOpen(true);
+        setStatus('ready');
+      }
+    } catch (err) {
+      alert("Erro ao acessar câmera: " + err);
+    }
+  };
+
+  const closeCamera = () => {
+    if (videoRef.current && videoRef.current.srcObject) {
+      const stream = videoRef.current.srcObject as MediaStream;
+      stream.getTracks().forEach(track => track.stop());
+      videoRef.current.srcObject = null;
+    }
+    setIsCameraOpen(false);
+  };
+
+  const handleFacialPunch = async () => {
+    if (!videoRef.current || !facialTemplate) return;
+    setIsVerifyingFace(true);
+    setStatus('verifying');
+    setMessage('Analisando rosto...');
+    
+    const descriptor = await getFaceDescriptor(videoRef.current);
+    setIsVerifyingFace(false);
+    
+    if (descriptor) {
+      const match = compareFaces(facialTemplate, descriptor);
+      if (match) {
+        closeCamera();
+        await recordTimeLog('Biometria Facial');
+      } else {
+        setStatus('error');
+        setMessage('Rosto não reconhecido. Tente novamente.');
+      }
+    } else {
+      setStatus('error');
+      setMessage('Nenhum rosto detectado na câmera.');
     }
   };
 
@@ -425,14 +485,38 @@ export const PunchClock = ({ employee, onBack }: { employee: Employee, onBack: (
                 <p className="text-industrial-muted mb-6 whitespace-pre-line">{message}</p>
               )}
 
-              {status === 'ready' && (!usePin || strictPinVerified) && authMethod !== 'pin' && (
+              {status === 'ready' && (!usePin || strictPinVerified) && authMethod !== 'pin' && !isCameraOpen && (
                 <div className="flex flex-col gap-3">
                   <button 
                     onClick={handleAutomaticBiometric}
                     className="w-full py-4 rounded-2xl bg-cyber-emerald text-white font-bold flex items-center justify-center gap-2 hover:bg-opacity-90 transition-all shadow-lg shadow-cyber-emerald/20"
                   >
-                    <Fingerprint size={24} /> Leitura de Digital
+                    {facialTemplate && !webAuthnCredentialId ? <Camera size={24} /> : <Fingerprint size={24} />} 
+                    {facialTemplate && !webAuthnCredentialId ? 'Reconhecimento Facial' : 'Leitura de Digital'}
                   </button>
+                </div>
+              )}
+
+              {isCameraOpen && (
+                <div className="flex flex-col gap-4 items-center">
+                  <div className="border-4 border-cyber-emerald rounded-2xl overflow-hidden relative" style={{width: 320, height: 320}}>
+                    <video ref={videoRef} autoPlay muted playsInline style={{width: '100%', height: '100%', objectFit: 'cover'}} />
+                  </div>
+                  <div className="flex gap-2 w-full max-w-[320px]">
+                    <button 
+                      onClick={handleFacialPunch}
+                      disabled={isVerifyingFace}
+                      className="flex-1 py-3 rounded-xl bg-cyber-emerald text-white font-bold disabled:opacity-50"
+                    >
+                      {isVerifyingFace ? 'Aguarde...' : 'Capturar e Bater Ponto'}
+                    </button>
+                    <button 
+                      onClick={closeCamera}
+                      className="px-4 py-3 rounded-xl bg-gray-200 text-gray-700 font-bold"
+                    >
+                      Cancelar
+                    </button>
+                  </div>
                 </div>
               )}
               
