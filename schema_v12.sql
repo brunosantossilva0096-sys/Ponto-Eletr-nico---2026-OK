@@ -6,3 +6,6 @@ CREATE TABLE IF NOT EXISTS webauthn_credentials (
     public_key TEXT NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW())
 );
+
+-- Ensure RLS is disabled so the frontend can read/write directly
+ALTER TABLE webauthn_credentials DISABLE ROW LEVEL SECURITY;
