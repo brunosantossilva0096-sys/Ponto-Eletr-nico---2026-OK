@@ -23,9 +23,28 @@ export const loadModels = async () => {
 // Captura um descritor de rosto (vetor de 128 floats)
 export const getFaceDescriptor = async (videoElement: HTMLVideoElement): Promise<Float32Array | null> => {
   try {
-    const detection = await faceapi.detectSingleFace(videoElement, new faceapi.TinyFaceDetectorOptions())
+    const loaded = await loadModels();
+    if (!loaded) {
+      console.error("Modelos não carregados.");
+      return null;
+    }
+    
+    // As vezes a engine trava se tentar ler num video não inicializado
+    if (videoElement.readyState < 2 || videoElement.videoWidth === 0 || videoElement.videoHeight === 0) {
+      console.error("Video element não está pronto.");
+      return null;
+    }
+
+    // Adiciona um timeout de 10 segundos caso a biblioteca trave
+    const detectionPromise = faceapi.detectSingleFace(videoElement, new faceapi.TinyFaceDetectorOptions())
       .withFaceLandmarks()
       .withFaceDescriptor();
+
+    const timeoutPromise = new Promise<null>((resolve) => {
+      setTimeout(() => resolve(null), 10000);
+    });
+
+    const detection = await Promise.race([detectionPromise, timeoutPromise]);
       
     if (detection) {
       return detection.descriptor;
