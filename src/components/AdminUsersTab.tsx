@@ -1,30 +1,39 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabaseClient';
-import { AdminUser } from '../types';
-import { Shield, Plus, Edit2, Trash2, Save, X } from 'lucide-react';
+import { AdminUser, Company } from '../types';
+import { Shield, Plus, Edit2, Trash2, Save, X, Building2 } from 'lucide-react';
 
 export const AdminUsersTab = ({ loggedAdmin }: { loggedAdmin: AdminUser }) => {
   const [admins, setAdmins] = useState<AdminUser[]>([]);
+  const [companies, setCompanies] = useState<Company[]>([]);
   const [editingAdmin, setEditingAdmin] = useState<AdminUser | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [role, setRole] = useState<'total' | 'parcial' | 'convencional'>('parcial');
+  const [companyId, setCompanyId] = useState<string>('');
 
   const fetchAdmins = async () => {
-    const { data } = await supabase.from('admin_users').select('*').order('username');
+    const { data } = await supabase.from('admin_users').select('*, companies(*)').order('username');
     if (data) setAdmins(data as AdminUser[]);
+  };
+
+  const fetchCompanies = async () => {
+    const { data } = await supabase.from('companies').select('*').order('name');
+    if (data) setCompanies(data as Company[]);
   };
 
   useEffect(() => {
     fetchAdmins();
+    fetchCompanies();
   }, []);
 
   const resetForm = () => {
     setUsername('');
     setPassword('');
     setRole('parcial');
+    setCompanyId('');
     setEditingAdmin(null);
     setIsCreating(false);
   };
@@ -32,8 +41,9 @@ export const AdminUsersTab = ({ loggedAdmin }: { loggedAdmin: AdminUser }) => {
   const handleEdit = (admin: AdminUser) => {
     setEditingAdmin(admin);
     setUsername(admin.username);
-    setPassword(admin.password || ''); // No real app, password is not returned in plaintext, mas aqui é local/simples
+    setPassword(admin.password || '');
     setRole(admin.role);
+    setCompanyId(admin.company_id || '');
     setIsCreating(true);
   };
 
@@ -55,17 +65,24 @@ export const AdminUsersTab = ({ loggedAdmin }: { loggedAdmin: AdminUser }) => {
       return;
     }
 
+    const payload = {
+      username,
+      password,
+      role,
+      company_id: companyId || null
+    };
+
     if (editingAdmin) {
       const { error } = await supabase
         .from('admin_users')
-        .update({ username, password, role })
+        .update(payload)
         .eq('id', editingAdmin.id);
         
       if (error) alert('Erro ao atualizar: ' + error.message);
     } else {
       const { error } = await supabase
         .from('admin_users')
-        .insert([{ username, password, role }]);
+        .insert([payload]);
         
       if (error) alert('Erro ao criar: ' + error.message);
     }
@@ -105,6 +122,7 @@ export const AdminUsersTab = ({ loggedAdmin }: { loggedAdmin: AdminUser }) => {
               <tr>
                 <th className="p-3 font-semibold">Usuário</th>
                 <th className="p-3 font-semibold">Permissão</th>
+                <th className="p-3 font-semibold">Empresa</th>
                 <th className="p-3 font-semibold text-right">Ações</th>
               </tr>
             </thead>
@@ -120,6 +138,17 @@ export const AdminUsersTab = ({ loggedAdmin }: { loggedAdmin: AdminUser }) => {
                     }`}>
                       {admin.role.toUpperCase()}
                     </span>
+                  </td>
+                  <td className="p-3">
+                    {admin.companies?.name ? (
+                      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                        <Building2 size={12} /> {admin.companies.name}
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium bg-gray-100 text-gray-600">
+                        Todas as Empresas
+                      </span>
+                    )}
                   </td>
                   <td className="p-3 text-right">
                     <button onClick={() => handleEdit(admin)} className="text-corporate-blue hover:text-blue-800 p-1 mr-2" title="Editar">
@@ -180,6 +209,29 @@ export const AdminUsersTab = ({ loggedAdmin }: { loggedAdmin: AdminUser }) => {
                   <option value="parcial">Parcial (Pode gerenciar funcionários e ver relatórios, mas não gerencia admins)</option>
                   <option value="convencional">Convencional (Apenas visualiza relatórios, sem alterar ou excluir)</option>
                 </select>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-industrial-muted mb-1 flex items-center gap-1.5">
+                  <Building2 size={14} className="text-cyber-emerald" /> Empresa Vinculada
+                </label>
+                <select 
+                  value={companyId}
+                  onChange={e => setCompanyId(e.target.value)}
+                  className="w-full bg-white border border-industrial-border rounded-lg p-2.5 text-sm focus:border-cyber-emerald focus:outline-none"
+                  disabled={editingAdmin?.username === 'admin'} // Admin master global
+                >
+                  <option value="">Todas as Empresas (Visão Global)</option>
+                  {companies.map(c => (
+                    <option key={c.id} value={c.id}>
+                      {c.name} {c.cnpj ? `(CNPJ: ${c.cnpj})` : ''}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[11px] text-industrial-muted mt-1">
+                  {companyId 
+                    ? 'Este administrador visualizará apenas funcionários, relatórios, banco de horas e abonos desta empresa.' 
+                    : 'Acesso irrestrito a todas as empresas do sistema.'}
+                </p>
               </div>
 
               <div className="pt-4 flex gap-3">

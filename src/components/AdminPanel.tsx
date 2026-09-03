@@ -4,7 +4,7 @@ import { Employee, Company } from '../types';
 import { MapContainer, TileLayer, Marker, Circle, useMapEvents, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
-import { Download, AlertTriangle, Fingerprint, Lock, Shield, MapPin, Search, Plus, Trash2, Edit2, Key, HelpCircle, Navigation, Settings, Smartphone, Users, ArrowLeft, CheckCircle2, FileText, Save, Camera } from 'lucide-react';
+import { Download, AlertTriangle, Fingerprint, Lock, Shield, MapPin, Search, Plus, Trash2, Edit2, Key, HelpCircle, Navigation, Settings, Smartphone, Users, ArrowLeft, CheckCircle2, FileText, Save, Camera, Building2 } from 'lucide-react';
 import { registerWebAuthn } from '../utils/webauthn';
 import { loadModels, getFaceDescriptor } from '../utils/faceApi';
 import { AdminReports } from './AdminReports';
@@ -193,12 +193,20 @@ export const AdminPanel = ({ loggedAdmin, onLogout }: { loggedAdmin: AdminUser, 
   const [customSchedule, setCustomSchedule] = useState<any>(DEFAULT_CUSTOM);
 
   const fetchEmployees = async () => {
-    const { data } = await supabase.from('employees').select('*, companies(*)').order('name');
+    let query = supabase.from('employees').select('*, companies(*)').order('name');
+    if (loggedAdmin.company_id) {
+      query = query.eq('company_id', loggedAdmin.company_id);
+    }
+    const { data } = await query;
     if (data) setEmployees(data);
   };
 
   const fetchCompanies = async () => {
-    const { data } = await supabase.from('companies').select('*').order('name');
+    let query = supabase.from('companies').select('*').order('name');
+    if (loggedAdmin.company_id) {
+      query = query.eq('id', loggedAdmin.company_id);
+    }
+    const { data } = await query;
     if (data) setAllCompanies(data);
   };
 
@@ -206,7 +214,7 @@ export const AdminPanel = ({ loggedAdmin, onLogout }: { loggedAdmin: AdminUser, 
     fetchEmployees();
     fetchCompanies();
     loadModels();
-  }, []);
+  }, [loggedAdmin.company_id]);
 
   const fetchBiometric = async (empId: string) => {
     const { data: secugenData } = await supabase.from('biometric_templates').select('template').eq('employee_id', empId).maybeSingle();
@@ -228,7 +236,7 @@ export const AdminPanel = ({ loggedAdmin, onLogout }: { loggedAdmin: AdminUser, 
     setRole('');
     setPin('');
     setAuthMethod('both');
-    setCompanyId('');
+    setCompanyId(loggedAdmin.company_id || '');
     setPosition(null);
     setGoogleMapsInput('');
     setAllowedMac('');
@@ -445,8 +453,19 @@ export const AdminPanel = ({ loggedAdmin, onLogout }: { loggedAdmin: AdminUser, 
           <>
             <header className="flex justify-between items-center bg-white p-6 rounded-2xl shadow-sm border border-industrial-border">
           <div>
-            <h1 className="text-2xl font-bold text-industrial-text flex items-center gap-4">
-              Gestão Corporativa
+            <h1 className="text-2xl font-bold text-industrial-text flex items-center gap-4 flex-wrap">
+              <div className="flex items-center gap-3">
+                <span>Gestão Corporativa</span>
+                {loggedAdmin.company_id ? (
+                  <span className="text-xs font-semibold px-2.5 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg flex items-center gap-1.5">
+                    <Building2 size={13} /> {loggedAdmin.companies?.name || 'Empresa Vinculada'}
+                  </span>
+                ) : (
+                  <span className="text-xs font-semibold px-2.5 py-1 bg-gray-100 text-gray-600 rounded-lg">
+                    Visão Global (Todas as Empresas)
+                  </span>
+                )}
+              </div>
               <div className="flex bg-industrial-bg rounded-lg p-1 overflow-x-auto max-w-full">
                 {loggedAdmin.role !== 'convencional' && (
                   <>
@@ -456,12 +475,14 @@ export const AdminPanel = ({ loggedAdmin, onLogout }: { loggedAdmin: AdminUser, 
                     >
                       Funcionários
                     </button>
-                    <button 
-                      onClick={() => setActiveTab('companies')} 
-                      className={`px-4 py-1.5 text-sm font-semibold rounded-md transition-all whitespace-nowrap ${activeTab === 'companies' ? 'bg-white shadow-sm text-cyber-emerald' : 'text-industrial-muted hover:text-industrial-text'}`}
-                    >
-                      Empresas
-                    </button>
+                    {!loggedAdmin.company_id && (
+                      <button 
+                        onClick={() => setActiveTab('companies')} 
+                        className={`px-4 py-1.5 text-sm font-semibold rounded-md transition-all whitespace-nowrap ${activeTab === 'companies' ? 'bg-white shadow-sm text-cyber-emerald' : 'text-industrial-muted hover:text-industrial-text'}`}
+                      >
+                        Empresas
+                      </button>
+                    )}
                   </>
                 )}
 
@@ -506,11 +527,11 @@ export const AdminPanel = ({ loggedAdmin, onLogout }: { loggedAdmin: AdminUser, 
           </button>
         </header>
 
-        {activeTab === 'companies' && <AdminCompanies />}
+        {activeTab === 'companies' && !loggedAdmin.company_id && <AdminCompanies />}
         {activeTab === 'reports' && <AdminReports loggedAdmin={loggedAdmin} />}
         {activeTab === 'holidays' && <AdminHolidays />}
-        {activeTab === 'absences' && <AdminAbsences />}
-        {activeTab === 'timebank' && <AdminTimeBank />}
+        {activeTab === 'absences' && <AdminAbsences loggedAdmin={loggedAdmin} />}
+        {activeTab === 'timebank' && <AdminTimeBank loggedAdmin={loggedAdmin} />}
         {activeTab === 'admins' && <AdminUsersTab loggedAdmin={loggedAdmin} />}
         {activeTab === 'employees' && loggedAdmin.role !== 'convencional' && (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -558,8 +579,15 @@ export const AdminPanel = ({ loggedAdmin, onLogout }: { loggedAdmin: AdminUser, 
                 <input type="text" value={name} onChange={e => setName(e.target.value)} className="w-full bg-industrial-bg border border-industrial-border rounded-lg p-2 text-sm focus:outline-none focus:border-cyber-emerald transition-colors" />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-industrial-muted mb-1">Empresa</label>
-                <select value={companyId} onChange={e => setCompanyId(e.target.value)} className="w-full bg-industrial-bg border border-industrial-border rounded-lg p-2 text-sm focus:outline-none focus:border-cyber-emerald transition-colors">
+                <label className="block text-xs font-semibold text-industrial-muted mb-1 flex items-center gap-1">
+                  <Building2 size={13} /> Empresa
+                </label>
+                <select 
+                  value={companyId} 
+                  onChange={e => setCompanyId(e.target.value)} 
+                  disabled={Boolean(loggedAdmin.company_id)}
+                  className="w-full bg-industrial-bg border border-industrial-border rounded-lg p-2 text-sm focus:outline-none focus:border-cyber-emerald transition-colors disabled:opacity-75 disabled:cursor-not-allowed"
+                >
                   <option value="">Selecione...</option>
                   {allCompanies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>

@@ -1,18 +1,22 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabaseClient';
-import { TimeLog, Employee, AdminUser } from '../types';
-import { Download, Search, Clock, Pencil, Trash2, X, AlertTriangle, FileText, Plus } from 'lucide-react';
+import { TimeLog, Employee, AdminUser, Holiday, Absence, Company } from '../types';
+import { Download, Search, Clock, Pencil, Trash2, X, AlertTriangle, FileText, Plus, Building2 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import { generateAbsences } from '../utils/faltas';
-import { Holiday, Absence } from '../types';
+
 export const AdminReports = ({ loggedAdmin }: { loggedAdmin: AdminUser }) => {
   const [logs, setLogs] = useState<any[]>([]);
   const [allEmployees, setAllEmployees] = useState<any[]>([]);
+  const [companies, setCompanies] = useState<Company[]>([]);
+  const [selectedCompanyId, setSelectedCompanyId] = useState<string>(loggedAdmin.company_id || '');
   const [holidays, setHolidays] = useState<Holiday[]>([]);
   const [absences, setAbsences] = useState<Absence[]>([]);
   const [search, setSearch] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
+
+  const effectiveCompanyId = loggedAdmin.company_id || selectedCompanyId;
   
   // Edit State
   const [editingLog, setEditingLog] = useState<TimeLog | null>(null);
@@ -41,8 +45,21 @@ export const AdminReports = ({ loggedAdmin }: { loggedAdmin: AdminUser }) => {
   };
 
   const fetchEmployees = async () => {
-    const { data } = await supabase.from('employees').select('*, companies(*)').order('name');
+    let query = supabase.from('employees').select('*, companies(*)').order('name');
+    if (loggedAdmin.company_id) {
+      query = query.eq('company_id', loggedAdmin.company_id);
+    }
+    const { data } = await query;
     if (data) setAllEmployees(data);
+  };
+
+  const fetchCompanies = async () => {
+    let query = supabase.from('companies').select('*').order('name');
+    if (loggedAdmin.company_id) {
+      query = query.eq('id', loggedAdmin.company_id);
+    }
+    const { data } = await query;
+    if (data) setCompanies(data);
   };
 
   const fetchAuxData = async () => {
@@ -57,9 +74,11 @@ export const AdminReports = ({ loggedAdmin }: { loggedAdmin: AdminUser }) => {
     fetchLogs();
     fetchEmployees();
     fetchAuxData();
-  }, []);
+    fetchCompanies();
+  }, [loggedAdmin.company_id]);
 
   const searchedEmployees = allEmployees.filter(emp => {
+    if (effectiveCompanyId && emp.company_id !== effectiveCompanyId) return false;
     if (!search) return true;
     return emp.name.toLowerCase().includes(search.toLowerCase()) || 
            emp.cpf.includes(search) ||
@@ -67,6 +86,10 @@ export const AdminReports = ({ loggedAdmin }: { loggedAdmin: AdminUser }) => {
   });
 
   const baseFilteredLogs = logs.filter(l => {
+    if (effectiveCompanyId && l.employees?.company_id !== effectiveCompanyId) {
+      return false;
+    }
+
     const matchesSearch = 
       l.employees?.name?.toLowerCase().includes(search.toLowerCase()) || 
       l.employees?.cpf?.includes(search) ||
@@ -113,12 +136,13 @@ export const AdminReports = ({ loggedAdmin }: { loggedAdmin: AdminUser }) => {
     let currentY = 27;
     doc.text(`Gerado em: ${new Date().toLocaleString('pt-BR')}`, 14, currentY);
     
-    if (companiesData.length === 1 && companiesData[0]) {
+    const activeCompany = companies.find(c => c.id === effectiveCompanyId) || (companiesData.length === 1 && companiesData[0] ? companiesData[0] : null);
+    if (activeCompany) {
       currentY += 5;
-      doc.text(`Empresa: ${companiesData[0].name}`, 14, currentY);
-      if (companiesData[0].cnpj) {
+      doc.text(`Empresa: ${activeCompany.name}`, 14, currentY);
+      if (activeCompany.cnpj) {
         currentY += 5;
-        doc.text(`CNPJ: ${companiesData[0].cnpj}`, 14, currentY);
+        doc.text(`CNPJ: ${activeCompany.cnpj}`, 14, currentY);
       }
     }
     
@@ -290,7 +314,7 @@ export const AdminReports = ({ loggedAdmin }: { loggedAdmin: AdminUser }) => {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4">
         <div className="relative">
           <Search className="absolute left-3 top-2.5 text-industrial-muted" size={16} />
           <input 
@@ -300,6 +324,19 @@ export const AdminReports = ({ loggedAdmin }: { loggedAdmin: AdminUser }) => {
             onChange={e => setSearch(e.target.value)}
             className="w-full pl-10 pr-4 py-2 bg-industrial-bg border border-industrial-border rounded-lg text-sm focus:border-cyber-emerald focus:outline-none"
           />
+        </div>
+        <div>
+          <select 
+            value={effectiveCompanyId}
+            onChange={e => setSelectedCompanyId(e.target.value)}
+            disabled={Boolean(loggedAdmin.company_id)}
+            className="w-full px-3 py-2 bg-industrial-bg border border-industrial-border rounded-lg text-sm focus:border-cyber-emerald focus:outline-none font-medium disabled:opacity-75 disabled:cursor-not-allowed"
+          >
+            {!loggedAdmin.company_id && <option value="">Todas as Empresas</option>}
+            {companies.map(c => (
+              <option key={c.id} value={c.id}>{c.name}</option>
+            ))}
+          </select>
         </div>
         <div>
           <input 
@@ -482,9 +519,13 @@ export const AdminReports = ({ loggedAdmin }: { loggedAdmin: AdminUser }) => {
                   className="w-full bg-industrial-bg border border-industrial-border rounded-lg p-2 text-sm focus:border-cyber-emerald focus:outline-none"
                 >
                   <option value="">Selecione o funcionário...</option>
-                  {allEmployees.map(emp => (
-                    <option key={emp.id} value={emp.id}>{emp.name}</option>
-                  ))}
+                  {allEmployees
+                    .filter(emp => !effectiveCompanyId || emp.company_id === effectiveCompanyId)
+                    .map(emp => (
+                      <option key={emp.id} value={emp.id}>
+                        {emp.name} {emp.companies?.name ? `(${emp.companies.name})` : ''}
+                      </option>
+                    ))}
                 </select>
               </div>
               <div className="grid grid-cols-2 gap-4">

@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabaseClient';
-import { Employee, TimeLog, Holiday, Absence } from '../types';
+import { Employee, TimeLog, Holiday, Absence, AdminUser } from '../types';
 import { Clock, Calendar as CalendarIcon, User } from 'lucide-react';
 import { calculateTimeBank, formatHours, formatHoursNeutral } from '../utils/timeBank';
 
-export const AdminTimeBank = () => {
+export const AdminTimeBank = ({ loggedAdmin }: { loggedAdmin?: AdminUser }) => {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [selectedEmployee, setSelectedEmployee] = useState<string>('');
   
@@ -21,11 +21,15 @@ export const AdminTimeBank = () => {
 
   useEffect(() => {
     const fetchEmployees = async () => {
-      const { data } = await supabase.from('employees').select('*').order('name');
+      let query = supabase.from('employees').select('*, companies(*)').order('name');
+      if (loggedAdmin?.company_id) {
+        query = query.eq('company_id', loggedAdmin.company_id);
+      }
+      const { data } = await query;
       if (data) setEmployees(data);
     };
     fetchEmployees();
-  }, []);
+  }, [loggedAdmin?.company_id]);
 
   useEffect(() => {
     const fetchLogs = async () => {
@@ -78,7 +82,9 @@ export const AdminTimeBank = () => {
           >
             <option value="">Selecione o Funcionário</option>
             {employees.map(e => (
-              <option key={e.id} value={e.id}>{e.name}</option>
+              <option key={e.id} value={e.id}>
+                {e.name} {e.companies?.name && !loggedAdmin?.company_id ? `(${e.companies.name})` : ''}
+              </option>
             ))}
           </select>
           

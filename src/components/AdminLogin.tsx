@@ -30,7 +30,7 @@ export const AdminLogin = ({ onLogin, onBack }: AdminLoginProps) => {
         // Tenta buscar no banco primeiro
         const { data, error: dbError } = await supabase
           .from('admin_users')
-          .select('*')
+          .select('*, companies(*)')
           .eq('username', username)
           .eq('password', password)
           .maybeSingle();
@@ -49,7 +49,7 @@ export const AdminLogin = ({ onLogin, onBack }: AdminLoginProps) => {
 
       const { data, error: dbError } = await supabase
         .from('admin_users')
-        .select('*')
+        .select('*, companies(*)')
         .eq('username', username)
         .eq('password', password)
         .maybeSingle();

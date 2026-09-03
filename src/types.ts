@@ -97,5 +97,7 @@ export interface AdminUser {
   username: string;
   password?: string;
   role: 'total' | 'parcial' | 'convencional';
+  company_id?: string | null;
+  companies?: Company;
   created_at?: string;
 }

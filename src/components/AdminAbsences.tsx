@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabaseClient';
-import { Absence, Employee } from '../types';
+import { Absence, Employee, AdminUser } from '../types';
 import { Save, CalendarRange, Plus, Trash2 } from 'lucide-react';
 
-export const AdminAbsences = () => {
+export const AdminAbsences = ({ loggedAdmin }: { loggedAdmin?: AdminUser }) => {
   const [absences, setAbsences] = useState<(Absence & { employees: Employee })[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   
@@ -16,19 +16,29 @@ export const AdminAbsences = () => {
   const [editingId, setEditingId] = useState<string | null>(null);
 
   const fetchAbsences = async () => {
-    const { data } = await supabase.from('absences').select('*, employees(*)').order('start_date', { ascending: false });
-    if (data) setAbsences(data as any);
+    const { data } = await supabase.from('absences').select('*, employees(*, companies(*))').order('start_date', { ascending: false });
+    if (data) {
+      let list = data as (Absence & { employees: Employee })[];
+      if (loggedAdmin?.company_id) {
+        list = list.filter(a => a.employees?.company_id === loggedAdmin.company_id);
+      }
+      setAbsences(list);
+    }
   };
 
   const fetchEmployees = async () => {
-    const { data } = await supabase.from('employees').select('*').order('name');
+    let query = supabase.from('employees').select('*, companies(*)').order('name');
+    if (loggedAdmin?.company_id) {
+      query = query.eq('company_id', loggedAdmin.company_id);
+    }
+    const { data } = await query;
     if (data) setEmployees(data);
   };
 
   useEffect(() => {
     fetchAbsences();
     fetchEmployees();
-  }, []);
+  }, [loggedAdmin?.company_id]);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -85,7 +95,9 @@ export const AdminAbsences = () => {
             >
               <option value="">Selecione...</option>
               {employees.map(emp => (
-                <option key={emp.id} value={emp.id}>{emp.name}</option>
+                <option key={emp.id} value={emp.id}>
+                  {emp.name} {emp.companies?.name && !loggedAdmin?.company_id ? `(${emp.companies.name})` : ''}
+                </option>
               ))}
             </select>
           </div>
@@ -188,6 +200,9 @@ export const AdminAbsences = () => {
                   <td className="p-3">
                     <span className="block font-medium">{a.employees?.name}</span>
                     <span className="text-xs text-industrial-muted">{a.employees?.cpf}</span>
+                    {a.employees?.companies?.name && !loggedAdmin?.company_id && (
+                      <span className="text-[11px] text-emerald-700 block font-medium mt-0.5">{a.employees.companies.name}</span>
+                    )}
                   </td>
                   <td className="p-3">
                     <p className="line-clamp-2 text-xs text-industrial-text">{a.reason}</p>
