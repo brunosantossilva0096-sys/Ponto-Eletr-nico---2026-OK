@@ -16,13 +16,35 @@ export const EmployeeReports = ({ employee, onBack, isAdmin = false }: { employe
   const [absences, setAbsences] = useState<Absence[]>([]);
 
   const fetchLogs = async () => {
-    const { data } = await supabase
-      .from('time_logs')
-      .select('*')
-      .eq('employee_id', employee.id)
-      .order('timestamp', { ascending: false });
-    
-    if (data) setLogs(data);
+    let allLogs: TimeLog[] = [];
+    let from = 0;
+    const pageSize = 1000;
+    let hasMore = true;
+
+    try {
+      while (hasMore) {
+        const { data, error } = await supabase
+          .from('time_logs')
+          .select('*')
+          .eq('employee_id', employee.id)
+          .order('timestamp', { ascending: false })
+          .range(from, from + pageSize - 1);
+        
+        if (error || !data || data.length === 0) {
+          hasMore = false;
+        } else {
+          allLogs = allLogs.concat(data as TimeLog[]);
+          if (data.length < pageSize) {
+            hasMore = false;
+          } else {
+            from += pageSize;
+          }
+        }
+      }
+      setLogs(allLogs);
+    } catch (err) {
+      console.error('Erro ao buscar histórico do funcionário:', err);
+    }
   };
 
   const fetchAuxData = async () => {

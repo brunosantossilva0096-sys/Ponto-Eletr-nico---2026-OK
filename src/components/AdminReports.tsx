@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabaseClient';
 import { TimeLog, Employee, AdminUser, Holiday, Absence, Company } from '../types';
-import { Download, Search, Clock, Pencil, Trash2, X, AlertTriangle, FileText, Plus, Building2 } from 'lucide-react';
+import { Download, Search, Clock, Pencil, Trash2, X, AlertTriangle, FileText, Plus, Building2, Loader2 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import { generateAbsences } from '../utils/faltas';
 
@@ -35,13 +35,51 @@ export const AdminReports = ({ loggedAdmin }: { loggedAdmin: AdminUser }) => {
   const [addReason, setAddReason] = useState('');
   const [addHideTag, setAddHideTag] = useState(false);
 
+  const [isLoading, setIsLoading] = useState(false);
+
   const fetchLogs = async () => {
-    const { data } = await supabase
-      .from('time_logs')
-      .select('*, employees(*, companies(*))')
-      .order('timestamp', { ascending: false });
-    
-    if (data) setLogs(data as any);
+    setIsLoading(true);
+    let allLogs: any[] = [];
+    let from = 0;
+    const pageSize = 1000;
+    let hasMore = true;
+
+    try {
+      while (hasMore) {
+        let query = supabase
+          .from('time_logs')
+          .select(loggedAdmin.company_id ? '*, employees!inner(*, companies(*))' : '*, employees(*, companies(*))')
+          .order('timestamp', { ascending: false });
+
+        if (loggedAdmin.company_id) {
+          query = query.eq('employees.company_id', loggedAdmin.company_id);
+        }
+
+        query = query.range(from, from + pageSize - 1);
+
+        const { data, error } = await query;
+        if (error) {
+          console.error('Erro ao buscar logs:', error);
+          break;
+        }
+
+        if (data && data.length > 0) {
+          allLogs = allLogs.concat(data);
+          if (data.length < pageSize) {
+            hasMore = false;
+          } else {
+            from += pageSize;
+          }
+        } else {
+          hasMore = false;
+        }
+      }
+      setLogs(allLogs as any);
+    } catch (err) {
+      console.error('Erro inesperado ao buscar histórico de batidas:', err);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const fetchEmployees = async () => {
@@ -298,7 +336,14 @@ export const AdminReports = ({ loggedAdmin }: { loggedAdmin: AdminUser }) => {
   return (
     <div className="bg-white rounded-2xl shadow-sm border border-industrial-border p-6 h-[600px] flex flex-col relative">
       <div className="flex justify-between items-center mb-6">
-        <h2 className="font-bold text-lg flex items-center gap-2"><Clock size={18} className="text-cyber-emerald"/> Relatório de Batidas</h2>
+        <h2 className="font-bold text-lg flex items-center gap-2">
+          <Clock size={18} className="text-cyber-emerald"/> Relatório de Batidas
+          {isLoading && (
+            <span className="flex items-center gap-1.5 text-xs text-industrial-muted font-normal ml-2">
+              <Loader2 size={14} className="animate-spin text-cyber-emerald" /> Carregando batidas...
+            </span>
+          )}
+        </h2>
         <div className="flex gap-2">
           {loggedAdmin.role !== 'convencional' && (
             <button onClick={() => setIsAddingManual(true)} className="bg-cyber-emerald text-white px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2 hover:bg-opacity-90 transition-all mr-2">
@@ -425,11 +470,20 @@ export const AdminReports = ({ loggedAdmin }: { loggedAdmin: AdminUser }) => {
                 )}
               </tr>
             ))}
-            {filtered.length === 0 && (
+            {isLoading ? (
+              <tr>
+                <td colSpan={loggedAdmin.role !== 'convencional' ? 7 : 6} className="p-8 text-center text-industrial-muted">
+                  <div className="flex flex-col items-center justify-center gap-2">
+                    <Loader2 size={24} className="animate-spin text-cyber-emerald" />
+                    <span>Carregando histórico completo de batidas...</span>
+                  </div>
+                </td>
+              </tr>
+            ) : filtered.length === 0 ? (
               <tr>
                 <td colSpan={loggedAdmin.role !== 'convencional' ? 7 : 6} className="p-8 text-center text-industrial-muted">Nenhum registro encontrado.</td>
               </tr>
-            )}
+            ) : null}
           </tbody>
         </table>
       </div>

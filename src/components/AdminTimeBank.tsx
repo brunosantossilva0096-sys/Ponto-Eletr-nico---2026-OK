@@ -39,16 +39,39 @@ export const AdminTimeBank = ({ loggedAdmin }: { loggedAdmin?: AdminUser }) => {
       const startDateTime = `${startDate}T00:00:00`;
       const endDateTime = `${endDate}T23:59:59`;
 
-      const { data } = await supabase
-        .from('time_logs')
-        .select('*')
-        .eq('employee_id', selectedEmployee)
-        .gte('timestamp', startDateTime)
-        .lte('timestamp', endDateTime)
-        .order('timestamp', { ascending: true });
-        
-      if (data) setLogs(data);
-      setIsLoading(false);
+      let allLogs: TimeLog[] = [];
+      let from = 0;
+      const pageSize = 1000;
+      let hasMore = true;
+
+      try {
+        while (hasMore) {
+          const { data, error } = await supabase
+            .from('time_logs')
+            .select('*')
+            .eq('employee_id', selectedEmployee)
+            .gte('timestamp', startDateTime)
+            .lte('timestamp', endDateTime)
+            .order('timestamp', { ascending: true })
+            .range(from, from + pageSize - 1);
+            
+          if (error || !data || data.length === 0) {
+            hasMore = false;
+          } else {
+            allLogs = allLogs.concat(data as TimeLog[]);
+            if (data.length < pageSize) {
+              hasMore = false;
+            } else {
+              from += pageSize;
+            }
+          }
+        }
+        setLogs(allLogs);
+      } catch (err) {
+        console.error('Erro ao buscar logs do banco de horas:', err);
+      } finally {
+        setIsLoading(false);
+      }
     };
 
     const fetchAuxData = async () => {

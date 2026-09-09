@@ -996,12 +996,6 @@ export const AdminPanel = ({ loggedAdmin, onLogout }: { loggedAdmin: AdminUser, 
           </div>
           </div>
         )}
-        {activeTab === 'reports' && <AdminReports loggedAdmin={loggedAdmin} />}
-        {activeTab === 'holidays' && <AdminHolidays />}
-        {activeTab === 'companies' && <AdminCompanies />}
-        {activeTab === 'absences' && <AdminAbsences />}
-        {activeTab === 'timebank' && <AdminTimeBank />}
-        {activeTab === 'admins' && <AdminUsersTab loggedAdmin={loggedAdmin} />}
         </>
         )}
       </div>
