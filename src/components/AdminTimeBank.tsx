@@ -170,7 +170,14 @@ export const AdminTimeBank = ({ loggedAdmin }: { loggedAdmin?: AdminUser }) => {
                 <div className="p-4 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3 max-h-[200px] overflow-y-auto custom-scrollbar">
                   {report.daily.map(day => (
                     <div key={day.date} className="bg-white text-sm p-3 rounded-lg border border-industrial-border shadow-sm">
-                      <p className="font-bold mb-1 text-industrial-text">{new Date(`${day.date}T12:00:00`).toLocaleDateString('pt-BR')}</p>
+                      <div className="flex items-center justify-between mb-1">
+                        <p className="font-bold text-industrial-text">{new Date(`${day.date}T12:00:00`).toLocaleDateString('pt-BR')}</p>
+                        {day.abono && (
+                          <span className="text-[10px] bg-purple-50 text-purple-700 px-1.5 py-0.5 rounded font-medium border border-purple-200">
+                            Abono {day.abono.shift === 'manha' ? 'Manhã' : day.abono.shift === 'tarde' ? 'Tarde' : 'Integral'}
+                          </span>
+                        )}
+                      </div>
                       
                       {day.logs && day.logs.length > 0 && (
                         <div className="text-[10px] text-industrial-muted mb-2 bg-industrial-bg p-1.5 rounded flex flex-wrap gap-1">

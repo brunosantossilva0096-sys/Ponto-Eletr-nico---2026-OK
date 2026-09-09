@@ -22,7 +22,7 @@ export const calculateTimeBank = (employee: Employee | null, logs: TimeLog[], st
 
   let totalWorkedMinutes = 0;
   let overallExpectedMinutes = 0;
-  const daily: { date: string, worked: number, expected: number, balance: number, logs: TimeLog[] }[] = [];
+  const daily: { date: string, worked: number, expected: number, balance: number, logs: TimeLog[], abono?: Absence, isHoliday?: boolean }[] = [];
   
   const isHoliday = (dateStr: string) => holidays.some(h => h.date === dateStr);
   const getAbsence = (dateStr: string) => absences.find(a => dateStr >= a.start_date && dateStr <= a.end_date);
@@ -73,42 +73,33 @@ export const calculateTimeBank = (employee: Employee | null, logs: TimeLog[], st
     const abono = getAbsence(dateStr);
     
     if (isHoliday(dateStr)) {
-       // Holiday: expected is 0. Any worked hours are extra.
+       // Feriado: carga horária esperada é 0. Quaisquer horas trabalhadas contam como extra.
        expectedMinutesPerDay = 0;
     } else if (abono) {
-       // Abono: Expected remains normal. But we "credit" the expected hours as worked.
-       let creditedHours = 0;
-       
-       if (abono.shift === 'manha') {
-           const wStart = employee.schedule_type === 'custom' && employee.custom_schedule ? employee.custom_schedule[dayOfWeek]?.work_start : employee.work_start;
-           const bStart = employee.schedule_type === 'custom' && employee.custom_schedule ? employee.custom_schedule[dayOfWeek]?.break_start : employee.break_start;
-           creditedHours = calcMinutes(wStart, bStart);
-       } else if (abono.shift === 'tarde') {
-           const bEnd = employee.schedule_type === 'custom' && employee.custom_schedule ? employee.custom_schedule[dayOfWeek]?.break_end : employee.break_end;
-           const wEnd = employee.schedule_type === 'custom' && employee.custom_schedule ? employee.custom_schedule[dayOfWeek]?.work_end : employee.work_end;
-           creditedHours = calcMinutes(bEnd, wEnd);
+       if (abono.shift === 'manha' || abono.shift === 'tarde') {
+           // Abono parcial (Manhã ou Tarde): abona exatamente 4 horas (240 minutos).
+           // Não computa as horas que faltaram pelo abono. Se o funcionário faltar o dia todo,
+           // desconta somente as 4 horas restantes (meta cai para 4 horas).
+           expectedMinutesPerDay = Math.max(0, expectedMinutesPerDay - 240);
        } else {
-           // Integral
-           // Se for integral, não deve exceder as horas esperadas se o funcionário não trabalhou
-           creditedHours = expectedMinutesPerDay;
+           // Abono Integral: dia totalmente abonado/justificado (0 horas esperadas a descontar)
+           expectedMinutesPerDay = 0;
        }
-       
-       // Credita as horas ao total trabalhado do dia
-       workedInDay += creditedHours;
     }
     
     totalWorkedMinutes += workedInDay;
     overallExpectedMinutes += expectedMinutesPerDay;
     
     // Only include in daily breakdown if there's log activity OR if it's a holiday/abono OR if it's a past workday.
-    // This makes the UI list much more transparent.
     if (dayLogs.length > 0 || abono || isHoliday(dateStr) || (expectedMinutesPerDay > 0 && current < today)) {
        daily.push({
          date: dateStr,
          worked: Math.round(workedInDay),
          expected: expectedMinutesPerDay,
          balance: Math.round(workedInDay) - expectedMinutesPerDay,
-         logs: dayLogs
+         logs: dayLogs,
+         abono: abono || undefined,
+         isHoliday: isHoliday(dateStr)
        });
     }
     
