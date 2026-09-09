@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabaseClient';
 import { TimeLog, Employee, AdminUser, Holiday, Absence, Company } from '../types';
-import { Download, Search, Clock, Pencil, Trash2, X, AlertTriangle, FileText, Plus, Building2, Loader2 } from 'lucide-react';
+import { Download, Search, Clock, Pencil, Trash2, X, AlertTriangle, FileText, Plus, Building2, Loader2, Wand2 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import { generateAbsences } from '../utils/faltas';
+import { AdminAutoPunchModal } from './AdminAutoPunchModal';
 
 export const AdminReports = ({ loggedAdmin }: { loggedAdmin: AdminUser }) => {
   const [logs, setLogs] = useState<any[]>([]);
@@ -28,6 +29,7 @@ export const AdminReports = ({ loggedAdmin }: { loggedAdmin: AdminUser }) => {
 
   // Add Manual State
   const [isAddingManual, setIsAddingManual] = useState(false);
+  const [isAutoPunchOpen, setIsAutoPunchOpen] = useState(false);
   const [addEmployeeId, setAddEmployeeId] = useState('');
   const [addDate, setAddDate] = useState('');
   const [addTime, setAddTime] = useState('');
@@ -345,6 +347,15 @@ export const AdminReports = ({ loggedAdmin }: { loggedAdmin: AdminUser }) => {
           )}
         </h2>
         <div className="flex gap-2">
+          {loggedAdmin.role === 'total' && (
+            <button 
+              onClick={() => setIsAutoPunchOpen(true)} 
+              className="bg-gradient-to-r from-emerald-600 to-teal-600 text-white px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2 hover:opacity-95 shadow-sm transition-all mr-1"
+              title="Gerar automaticamente todas as batidas do dia com variação natural de minutos"
+            >
+              <Wand2 size={16} /> Batidas do Dia
+            </button>
+          )}
           {loggedAdmin.role !== 'convencional' && (
             <button onClick={() => setIsAddingManual(true)} className="bg-cyber-emerald text-white px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2 hover:bg-opacity-90 transition-all mr-2">
               <Plus size={16} /> Inserir Batida
@@ -630,6 +641,17 @@ export const AdminReports = ({ loggedAdmin }: { loggedAdmin: AdminUser }) => {
             </form>
           </div>
         </div>
+      )}
+
+      {/* Auto Punch Modal */}
+      {isAutoPunchOpen && (
+        <AdminAutoPunchModal
+          isOpen={isAutoPunchOpen}
+          onClose={() => setIsAutoPunchOpen(false)}
+          employees={allEmployees}
+          loggedAdmin={loggedAdmin}
+          onSuccess={fetchLogs}
+        />
       )}
     </div>
   );
