@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabaseClient';
 import { Employee, AdminUser, Holiday } from '../types';
-import { Wand2, X, Calendar, AlertTriangle, RefreshCw, Save, ShieldAlert, Sparkles, ChevronDown, ChevronUp, CheckCircle2 } from 'lucide-react';
+import { Wand2, X, Calendar, AlertTriangle, RefreshCw, Save, ShieldAlert, Sparkles, ChevronDown, ChevronUp, CheckCircle2, Clock } from 'lucide-react';
 
 interface AutoPunchItem {
   type: string;
@@ -27,7 +27,170 @@ interface AdminAutoPunchModalProps {
   onSuccess: () => void;
 }
 
+interface EmployeeDayScheduleInfo {
+  isActive: boolean;
+  basePunches: { type: string; baseTime: string }[];
+  workStart: string;
+  breakStart: string;
+  breakEnd: string;
+  workEnd: string;
+}
+
 const DOW_NAMES = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'];
+
+// Helper para ler a escala base exata cadastrada no perfil do funcionário para o dia da semana
+const getEmployeeDaySchedule = (emp: Employee, dow: number): EmployeeDayScheduleInfo => {
+  let ws = '';
+  let bs = '';
+  let be = '';
+  let we = '';
+  let isActive = true;
+
+  // 1. Escala Personalizada cadastrada para este dia específico da semana (0=Dom .. 6=Sáb)
+  if (emp.custom_schedule && emp.custom_schedule[dow]) {
+    const sc = emp.custom_schedule[dow];
+    isActive = Boolean(sc.active);
+    ws = (sc.work_start || '').trim().substring(0, 5);
+    bs = (sc.break_start || '').trim().substring(0, 5);
+    be = (sc.break_end || '').trim().substring(0, 5);
+    we = (sc.work_end || '').trim().substring(0, 5);
+  } else {
+    // 2. Escala Padrão do cadastro
+    ws = (emp.work_start || '').trim().substring(0, 5);
+    bs = (emp.break_start || '').trim().substring(0, 5);
+    be = (emp.break_end || '').trim().substring(0, 5);
+    we = (emp.work_end || '').trim().substring(0, 5);
+    isActive = !emp.work_days || emp.work_days.includes(dow);
+  }
+
+  // 3. Fallback: Se os campos padrão estiverem vazios no banco, mas houver custom_schedule
+  if (!ws && !we && emp.custom_schedule) {
+    const daySched = emp.custom_schedule[dow] || emp.custom_schedule[1] || Object.values(emp.custom_schedule).find((s: any) => s.active && s.work_start);
+    if (daySched) {
+      if (emp.custom_schedule[dow]) {
+        isActive = Boolean(daySched.active);
+      }
+      ws = (daySched.work_start || '').trim().substring(0, 5);
+      bs = (daySched.break_start || '').trim().substring(0, 5);
+      be = (daySched.break_end || '').trim().substring(0, 5);
+      we = (daySched.work_end || '').trim().substring(0, 5);
+    }
+  }
+
+  // Se for dia ativo e não tiver nenhum horário cadastrado, adota 08:00 às 17:00
+  if (isActive && !ws) {
+    ws = '08:00';
+    we = '17:00';
+  }
+
+  const basePunches: { type: string; baseTime: string }[] = [];
+
+  if (isActive) {
+    // Caso 1: 4 batidas completas (Entrada, Almoço Saída, Volta Almoço, Fim)
+    if (ws && bs && be && we) {
+      basePunches.push(
+        { type: 'Entrada Manhã', baseTime: ws },
+        { type: 'Saída Manhã', baseTime: bs },
+        { type: 'Entrada Tarde', baseTime: be },
+        { type: 'Saída Tarde', baseTime: we }
+      );
+    }
+    // Caso 2: Turno de meio período (ex: Sábado com work_start 07:00 e break_start 11:00)
+    else if (ws && bs && !be && !we) {
+      basePunches.push(
+        { type: 'Entrada Manhã', baseTime: ws },
+        { type: 'Saída Manhã', baseTime: bs }
+      );
+    }
+    // Caso 3: Turno contínuo sem intervalo (ex: work_start 07:00 e work_end 17:00)
+    else if (ws && we && !bs && !be) {
+      basePunches.push(
+        { type: 'Entrada Manhã', baseTime: ws },
+        { type: 'Saída Tarde', baseTime: we }
+      );
+    }
+    // Caso 4: Qualquer 2 horários registrados
+    else if (ws && (we || bs || be)) {
+      const endTime = we || bs || be;
+      basePunches.push(
+        { type: 'Entrada Manhã', baseTime: ws },
+        { type: 'Saída Tarde', baseTime: endTime }
+      );
+    }
+    // Caso 5: Apenas horário de início
+    else if (ws) {
+      basePunches.push(
+        { type: 'Entrada Manhã', baseTime: ws },
+        { type: 'Saída Tarde', baseTime: '17:00' }
+      );
+    }
+  } else {
+    // Dia marcado como folga na escala, mas que o admin solicitou gerar batida (ex: plantão ou dia avulso)
+    let fallbackWs = '08:00';
+    let fallbackBs = '12:00';
+    let fallbackBe = '13:00';
+    let fallbackWe = '17:00';
+
+    if (emp.custom_schedule) {
+      const firstActive = Object.values(emp.custom_schedule).find((s: any) => s.active && s.work_start);
+      if (firstActive) {
+        fallbackWs = (firstActive.work_start || '').trim().substring(0, 5) || fallbackWs;
+        fallbackBs = (firstActive.break_start || '').trim().substring(0, 5);
+        fallbackBe = (firstActive.break_end || '').trim().substring(0, 5);
+        fallbackWe = (firstActive.work_end || '').trim().substring(0, 5);
+      }
+    } else if (emp.work_start) {
+      fallbackWs = emp.work_start.substring(0, 5);
+      fallbackBs = (emp.break_start || '').substring(0, 5);
+      fallbackBe = (emp.break_end || '').substring(0, 5);
+      fallbackWe = (emp.work_end || '').substring(0, 5);
+    }
+
+    if (fallbackWs && fallbackBs && fallbackBe && fallbackWe) {
+      basePunches.push(
+        { type: 'Entrada Manhã', baseTime: fallbackWs },
+        { type: 'Saída Manhã', baseTime: fallbackBs },
+        { type: 'Entrada Tarde', baseTime: fallbackBe },
+        { type: 'Saída Tarde', baseTime: fallbackWe }
+      );
+    } else if (fallbackWs && (fallbackWe || fallbackBs)) {
+      basePunches.push(
+        { type: 'Entrada Manhã', baseTime: fallbackWs },
+        { type: 'Saída Tarde', baseTime: fallbackWe || fallbackBs }
+      );
+    }
+  }
+
+  return {
+    isActive,
+    basePunches,
+    workStart: ws,
+    breakStart: bs,
+    breakEnd: be,
+    workEnd: we
+  };
+};
+
+// Helper para resumir a escala cadastrada para visualização do usuário
+const getEmployeeScheduleSummary = (emp: Employee): string => {
+  if (emp.custom_schedule) {
+    const daysWithSched = Object.entries(emp.custom_schedule)
+      .filter(([_, s]: any) => s && s.active && s.work_start)
+      .map(([dow, s]: any) => {
+        const dName = DOW_NAMES[Number(dow)].slice(0, 3);
+        const punches = [s.work_start, s.break_start, s.break_end, s.work_end].filter(Boolean).map((t: string) => t.substring(0, 5));
+        return `${dName}: ${punches.join(' - ')}`;
+      });
+    if (daysWithSched.length > 0) {
+      return daysWithSched.join(' | ');
+    }
+  }
+  const std = [emp.work_start, emp.break_start, emp.break_end, emp.work_end].filter(Boolean).map((t: string) => t.substring(0, 5));
+  if (std.length > 0) {
+    return `Seg a Sex: ${std.join(' - ')}`;
+  }
+  return 'Horário padrão (08:00 - 12:00 - 13:00 - 17:00)';
+};
 
 export const AdminAutoPunchModal: React.FC<AdminAutoPunchModalProps> = ({
   isOpen,
@@ -127,63 +290,18 @@ export const AdminAutoPunchModal: React.FC<AdminAutoPunchModalProps> = ({
     checkExistingDates();
   }, [selectedEmployeeId, selectedDate, startDate, endDate, mode]);
 
-  // Função para gerar as batidas de 1 dia específico com base na escala do funcionário
-  const generatePunchesForSingleDate = (targetDateStr: string): AutoPunchItem[] => {
-    if (!selectedEmployee) return [];
-
-    const targetDate = new Date(`${targetDateStr}T12:00:00`);
-    const dayOfWeek = targetDate.getDay();
-
-    let workStart = '';
-    let breakStart = '';
-    let breakEnd = '';
-    let workEnd = '';
-
-    if (selectedEmployee.schedule_type === 'custom' && selectedEmployee.custom_schedule) {
-      const daySched = selectedEmployee.custom_schedule[dayOfWeek];
-      if (daySched) {
-        workStart = daySched.work_start || '';
-        breakStart = daySched.break_start || '';
-        breakEnd = daySched.break_end || '';
-        workEnd = daySched.work_end || '';
-      }
-    } else {
-      workStart = selectedEmployee.work_start ? selectedEmployee.work_start.substring(0, 5) : '';
-      breakStart = selectedEmployee.break_start ? selectedEmployee.break_start.substring(0, 5) : '';
-      breakEnd = selectedEmployee.break_end ? selectedEmployee.break_end.substring(0, 5) : '';
-      workEnd = selectedEmployee.work_end ? selectedEmployee.work_end.substring(0, 5) : '';
-    }
-
-    if (!workStart) workStart = '08:00';
-    if (!workEnd) workEnd = '18:00';
-    if (!breakStart && breakEnd) breakStart = '12:00';
-    if (breakStart && !breakEnd) breakEnd = '13:00';
-
-    const items: AutoPunchItem[] = [];
-
-    if (breakStart && breakEnd) {
-      const diff1 = getRandomOffset(variationRange);
-      const diff2 = getRandomOffset(variationRange);
-      const diff3 = getRandomOffset(variationRange);
-      const diff4 = getRandomOffset(variationRange);
-
-      items.push(
-        { type: 'Entrada Manhã', baseTime: workStart, adjustedTime: addMinutesToTimeString(workStart, diff1), minuteDiff: diff1 },
-        { type: 'Saída Manhã', baseTime: breakStart, adjustedTime: addMinutesToTimeString(breakStart, diff2), minuteDiff: diff2 },
-        { type: 'Entrada Tarde', baseTime: breakEnd, adjustedTime: addMinutesToTimeString(breakEnd, diff3), minuteDiff: diff3 },
-        { type: 'Saída Tarde', baseTime: workEnd, adjustedTime: addMinutesToTimeString(workEnd, diff4), minuteDiff: diff4 }
-      );
-    } else {
-      const diff1 = getRandomOffset(variationRange);
-      const diff2 = getRandomOffset(variationRange);
-
-      items.push(
-        { type: 'Entrada Manhã', baseTime: workStart, adjustedTime: addMinutesToTimeString(workStart, diff1), minuteDiff: diff1 },
-        { type: 'Saída Tarde', baseTime: workEnd, adjustedTime: addMinutesToTimeString(workEnd, diff2), minuteDiff: diff2 }
-      );
-    }
-
-    return items;
+  // Função para gerar as batidas de 1 dia específico com base na escala real do funcionário
+  const generatePunchesForSingleDate = (targetDateStr: string, schedInfo: EmployeeDayScheduleInfo): AutoPunchItem[] => {
+    return schedInfo.basePunches.map(bp => {
+      const diff = getRandomOffset(variationRange);
+      const adjusted = addMinutesToTimeString(bp.baseTime, diff);
+      return {
+        type: bp.type,
+        baseTime: bp.baseTime,
+        adjustedTime: adjusted,
+        minuteDiff: diff
+      };
+    });
   };
 
   // Calcula a lista de dias a serem processados
@@ -216,29 +334,25 @@ export const AdminAutoPunchModal: React.FC<AdminAutoPunchModalProps> = ({
       // Verificar se é feriado
       const isHoliday = holidays.some(h => h.date === dateStr);
 
-      // Verificar se é dia ativo/útil na escala do funcionário
-      let isDayActive = true;
-      if (selectedEmployee.schedule_type === 'custom' && selectedEmployee.custom_schedule) {
-        isDayActive = Boolean(selectedEmployee.custom_schedule[dow]?.active);
-      } else {
-        isDayActive = !selectedEmployee.work_days || selectedEmployee.work_days.includes(dow);
-      }
-
-      const isDayOff = !isDayActive;
+      // Obter escala e horários exatos cadastrados no perfil do colaborador para este dia
+      const schedInfo = getEmployeeDaySchedule(selectedEmployee, dow);
+      const isDayOff = !schedInfo.isActive;
 
       // Se for modo intervalo e configurado para pular feriados/folgas
-      const shouldSkip = (skipHolidays && isHoliday) || (skipWeekends && isDayOff);
+      const shouldSkip = mode === 'range' && ((skipHolidays && isHoliday) || (skipWeekends && isDayOff));
 
       if (!shouldSkip) {
-        const punches = generatePunchesForSingleDate(dateStr);
-        list.push({
-          date: dateStr,
-          dayOfWeekName: DOW_NAMES[dow],
-          punches,
-          hasExistingLogs: existingDatesSet.has(dateStr),
-          isDayOff,
-          isHoliday
-        });
+        const punches = generatePunchesForSingleDate(dateStr, schedInfo);
+        if (punches.length > 0) {
+          list.push({
+            date: dateStr,
+            dayOfWeekName: DOW_NAMES[dow],
+            punches,
+            hasExistingLogs: existingDatesSet.has(dateStr),
+            isDayOff,
+            isHoliday
+          });
+        }
       }
 
       current.setDate(current.getDate() + 1);
@@ -441,6 +555,25 @@ export const AdminAutoPunchModal: React.FC<AdminAutoPunchModalProps> = ({
                 </option>
               ))}
             </select>
+
+            {selectedEmployee && (
+              <div className="mt-2.5 p-3 bg-emerald-50/70 border border-emerald-200 rounded-xl text-xs space-y-1.5 animate-fade-in">
+                <div className="font-bold flex items-center justify-between text-emerald-900">
+                  <div className="flex items-center gap-1.5">
+                    <CheckCircle2 size={14} className="text-cyber-emerald" />
+                    <span>Horários Base no Perfil ({selectedEmployee.schedule_type === 'custom' ? 'Escala Personalizada Semanal' : 'Padrão'}):</span>
+                  </div>
+                </div>
+                <div className="text-[11px] text-emerald-950 font-medium bg-white/80 p-2 rounded-lg border border-emerald-100 flex flex-wrap gap-x-3 gap-y-1">
+                  {getEmployeeScheduleSummary(selectedEmployee).split(' | ').map((part, idx) => (
+                    <span key={idx} className="inline-flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-cyber-emerald"></span>
+                      {part}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Datas conforme o modo */}
@@ -644,18 +777,23 @@ export const AdminAutoPunchModal: React.FC<AdminAutoPunchModalProps> = ({
                       {isExpanded && !isSkipped && (
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-3 pt-2.5 border-t border-industrial-border/60">
                           {day.punches.map((p, pIdx) => (
-                            <div key={pIdx} className="bg-white p-2 rounded-lg border border-industrial-border shadow-xs">
-                              <span className="text-[10px] font-bold text-industrial-muted block truncate">{p.type}</span>
-                              <div className="flex items-center justify-between mt-1">
+                            <div key={pIdx} className="bg-white p-2.5 rounded-lg border border-industrial-border shadow-xs">
+                              <div className="flex items-center justify-between gap-1">
+                                <span className="text-[10px] font-bold text-industrial-muted block truncate">{p.type}</span>
+                                <span className="text-[9px] text-industrial-muted font-mono bg-industrial-bg px-1 py-0.5 rounded" title="Horário base no cadastro">
+                                  Base: {p.baseTime}
+                                </span>
+                              </div>
+                              <div className="flex items-center justify-between mt-1.5">
                                 <input
                                   type="time"
                                   value={p.adjustedTime}
                                   onChange={e => handleManualTimeChange(dIdx, pIdx, e.target.value)}
                                   className="w-16 bg-white border border-industrial-border rounded px-1 text-xs font-mono font-bold focus:border-cyber-emerald focus:outline-none"
                                 />
-                                <span className={`text-[10px] font-bold px-1 rounded ${
-                                  p.minuteDiff > 0 ? 'text-emerald-700 bg-emerald-50' :
-                                  p.minuteDiff < 0 ? 'text-orange-700 bg-orange-50' : 'text-gray-500'
+                                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                                  p.minuteDiff > 0 ? 'text-emerald-700 bg-emerald-50 border border-emerald-200' :
+                                  p.minuteDiff < 0 ? 'text-amber-700 bg-amber-50 border border-amber-200' : 'text-gray-500 bg-gray-50'
                                 }`}>
                                   {p.minuteDiff > 0 ? `+${p.minuteDiff}m` : p.minuteDiff < 0 ? `${p.minuteDiff}m` : '0m'}
                                 </span>
