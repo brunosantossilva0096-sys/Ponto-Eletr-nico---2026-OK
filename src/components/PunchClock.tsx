@@ -1,7 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import { Employee, TimeLog } from '../types';
-import { MapPin, Fingerprint, KeyRound, AlertTriangle, ArrowLeft, CheckCircle2, FileText, LogIn, LogOut, Coffee, Moon, ShieldCheck, Camera } from 'lucide-react';
+import { 
+  MapPin, Fingerprint, KeyRound, AlertTriangle, ArrowLeft, CheckCircle2, 
+  FileText, LogIn, LogOut, Coffee, Moon, ShieldCheck, Camera, 
+  Loader2, Lock, SlidersHorizontal, Check, RefreshCw 
+} from 'lucide-react';
 import { motion } from 'motion/react';
 import { EmployeeReports } from './EmployeeReports';
 import { authenticateWebAuthn } from '../utils/webauthn';
@@ -13,6 +17,37 @@ const PUNCH_TYPES = [
   { type: 'Entrada Tarde', label: 'Entrada Tarde', icon: LogIn, color: 'text-corporate-blue', bg: 'bg-blue-50' },
   { type: 'Saída Tarde', label: 'Saída Tarde', icon: Moon, color: 'text-purple-600', bg: 'bg-purple-50' },
 ];
+
+const ALL_MANUAL_TYPES = [
+  { type: 'Entrada Manhã', label: 'Entrada Manhã', desc: '1º Ponto - Início da jornada', icon: LogIn, color: 'text-cyber-emerald', bg: 'bg-cyber-emerald/10' },
+  { type: 'Saída Manhã', label: 'Saída Manhã', desc: '2º Ponto - Início do intervalo / almoço', icon: Coffee, color: 'text-orange-500', bg: 'bg-orange-50' },
+  { type: 'Entrada Tarde', label: 'Entrada Tarde', desc: '3º Ponto - Retorno do intervalo', icon: LogIn, color: 'text-corporate-blue', bg: 'bg-blue-50' },
+  { type: 'Saída Tarde', label: 'Saída Tarde', desc: '4º Ponto - Término da jornada', icon: Moon, color: 'text-purple-600', bg: 'bg-purple-50' },
+  { type: 'Batida Extra', label: 'Batida Extra', desc: 'Batida adicional fora do padrão', icon: LogIn, color: 'text-indigo-600', bg: 'bg-indigo-50' },
+];
+
+const getInitialTodayLogs = (employeeId: string): { logs: TimeLog[]; hasCached: boolean } => {
+  const todayDateStr = new Date().toISOString().split('T')[0];
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+  const todayEnd = new Date();
+  todayEnd.setHours(23, 59, 59, 999);
+
+  // 1. Logs offline pendentes
+  const offlineLogs: TimeLog[] = JSON.parse(localStorage.getItem('offline_punches') || '[]')
+    .filter((l: TimeLog) => l.employee_id === employeeId && l.timestamp >= todayStart.toISOString() && l.timestamp <= todayEnd.toISOString());
+
+  // 2. Logs em cache de hoje
+  const cachedRaw = localStorage.getItem(`today_logs_${employeeId}_${todayDateStr}`);
+  const hasCached = cachedRaw !== null;
+  const cachedLogs: TimeLog[] = hasCached ? JSON.parse(cachedRaw) : [];
+
+  const allLogs = [...cachedLogs, ...offlineLogs];
+  const uniqueLogs = Array.from(new Map(allLogs.map(l => [l.id, l])).values());
+  uniqueLogs.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+
+  return { logs: uniqueLogs, hasCached };
+};
 
 const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
   const R = 6371e3; // Raio da terra em metros
@@ -66,16 +101,49 @@ export const PunchClock = ({ employee, onBack }: { employee: Employee, onBack: (
     checkBiometrics();
   }, [employee]);
 
-  // Punch type detection
-  const [todayLogs, setTodayLogs] = useState<TimeLog[]>([]);
-  const [punchIndex, setPunchIndex] = useState(0);
+  // Punch type detection & state
+  const initialData = getInitialTodayLogs(employee.id);
+  const [todayLogs, setTodayLogs] = useState<TimeLog[]>(initialData.logs);
+  const [punchIndex, setPunchIndex] = useState<number>(initialData.logs.length);
+  const [isCheckingShift, setIsCheckingShift] = useState<boolean>(!initialData.hasCached && navigator.onLine);
+  const [selectedShiftOverride, setSelectedShiftOverride] = useState<string | null>(null);
+  const [showShiftModal, setShowShiftModal] = useState<boolean>(false);
 
-  const currentPunch = punchIndex < PUNCH_TYPES.length ? PUNCH_TYPES[punchIndex] : { type: `Batida Extra #${punchIndex - 3}`, label: `Batida Extra #${punchIndex - 3}`, icon: LogIn, color: 'text-industrial-muted', bg: 'bg-industrial-bg' };
+  const isShiftReady = !isCheckingShift || initialData.hasCached || selectedShiftOverride !== null;
+
+  const currentPunch = React.useMemo(() => {
+    if (selectedShiftOverride) {
+      const found = ALL_MANUAL_TYPES.find(p => p.type === selectedShiftOverride);
+      if (found) return { ...found, isFixed: true };
+      return {
+        type: selectedShiftOverride,
+        label: selectedShiftOverride,
+        icon: LogIn,
+        color: 'text-corporate-blue',
+        bg: 'bg-blue-50',
+        isFixed: true,
+      };
+    }
+    const idx = punchIndex;
+    const base = idx < PUNCH_TYPES.length
+      ? PUNCH_TYPES[idx]
+      : {
+          type: `Batida Extra #${idx - 3}`,
+          label: `Batida Extra #${idx - 3}`,
+          icon: LogIn,
+          color: 'text-industrial-muted',
+          bg: 'bg-industrial-bg',
+        };
+    return { ...base, isFixed: false };
+  }, [punchIndex, selectedShiftOverride]);
+
   const PunchIcon = currentPunch.icon;
 
   // Fetch today's punches to determine next type
   useEffect(() => {
+    let isMounted = true;
     const fetchTodayLogs = async () => {
+      const todayDateStr = new Date().toISOString().split('T')[0];
       const todayStart = new Date();
       todayStart.setHours(0, 0, 0, 0);
       const todayEnd = new Date();
@@ -84,32 +152,44 @@ export const PunchClock = ({ employee, onBack }: { employee: Employee, onBack: (
       let todayOnline: TimeLog[] = [];
       if (navigator.onLine) {
         try {
-          const { data } = await supabase
+          const fetchPromise = supabase
             .from('time_logs')
             .select('*')
             .eq('employee_id', employee.id)
             .gte('timestamp', todayStart.toISOString())
             .lte('timestamp', todayEnd.toISOString())
             .order('timestamp', { ascending: true });
-          if (data) todayOnline = data;
+
+          const timeoutPromise = new Promise<{ data: null }>((resolve) =>
+            setTimeout(() => resolve({ data: null }), 3500)
+          );
+
+          const { data } = await Promise.race([fetchPromise, timeoutPromise]);
+          if (data && isMounted) {
+            todayOnline = data;
+            localStorage.setItem(`today_logs_${employee.id}_${todayDateStr}`, JSON.stringify(data));
+          }
         } catch (e) {
-          // ignore
+          console.warn('Erro ao carregar batidas de hoje:', e);
         }
       }
 
-      // Merge with offline logs
+      if (!isMounted) return;
+
       const offlineLogs: TimeLog[] = JSON.parse(localStorage.getItem('offline_punches') || '[]')
         .filter((l: TimeLog) => l.employee_id === employee.id && l.timestamp >= todayStart.toISOString() && l.timestamp <= todayEnd.toISOString());
 
-      // Distinct IDs to avoid duplicates if sync just happened
       const allLogs = [...todayOnline, ...offlineLogs];
       const uniqueLogs = Array.from(new Map(allLogs.map(l => [l.id, l])).values());
       uniqueLogs.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
 
       setTodayLogs(uniqueLogs);
       setPunchIndex(uniqueLogs.length);
+      setIsCheckingShift(false);
     };
+
     fetchTodayLogs();
+    return () => { isMounted = false; };
   }, [employee.id]);
 
   // Atualizar relógio
@@ -236,6 +316,11 @@ export const PunchClock = ({ employee, onBack }: { employee: Employee, onBack: (
       cpf_trabalhador: employee.cpf
     };
 
+    // Atualiza imediatamente o cache de hoje para que na próxima abertura já mostre o próximo turno
+    const todayDateStr = new Date().toISOString().split('T')[0];
+    const updatedLogs = [...todayLogs, log];
+    localStorage.setItem(`today_logs_${employee.id}_${todayDateStr}`, JSON.stringify(updatedLogs));
+
     if (!navigator.onLine) {
       // Salvar offline
       const offlineLogs = JSON.parse(localStorage.getItem('offline_punches') || '[]');
@@ -271,6 +356,10 @@ export const PunchClock = ({ employee, onBack }: { employee: Employee, onBack: (
 
   const handleFingerprint = async () => {
     if (status !== 'ready') return;
+    if (!isShiftReady) {
+      alert('Aguarde a identificação do turno antes de escanear a digital.');
+      return;
+    }
     setStatus('verifying');
     setMessage('Escaneando digital...');
     
@@ -318,6 +407,10 @@ export const PunchClock = ({ employee, onBack }: { employee: Employee, onBack: (
 
   const handleWebAuthnPunch = async () => {
     if (!webAuthnCredentialId) return;
+    if (!isShiftReady) {
+      alert('Aguarde a identificação do turno.');
+      return;
+    }
     setStatus('verifying');
     setMessage('Aguardando Biometria/Passkey...');
     const success = await authenticateWebAuthn(webAuthnCredentialId);
@@ -330,6 +423,10 @@ export const PunchClock = ({ employee, onBack }: { employee: Employee, onBack: (
   };
 
   const handleAutomaticBiometric = () => {
+    if (!isShiftReady) {
+      alert('Aguarde a identificação do turno antes de bater o ponto.');
+      return;
+    }
     if (webAuthnCredentialId) {
       handleWebAuthnPunch();
     } else if (facialTemplate) {
@@ -365,6 +462,10 @@ export const PunchClock = ({ employee, onBack }: { employee: Employee, onBack: (
 
   const handleFacialPunch = async () => {
     if (!videoRef.current || !facialTemplate) return;
+    if (!isShiftReady) {
+      alert('Aguarde a identificação do turno.');
+      return;
+    }
     setIsVerifyingFace(true);
     setStatus('verifying');
     setMessage('Analisando rosto...');
@@ -388,6 +489,10 @@ export const PunchClock = ({ employee, onBack }: { employee: Employee, onBack: (
   };
 
   const handlePinAuth = () => {
+    if (!isShiftReady) {
+      alert('Aguarde a identificação do turno antes de confirmar a senha.');
+      return;
+    }
     if (pinInput !== employee.pin) {
       alert('Senha incorreta!');
       return;
@@ -438,10 +543,45 @@ export const PunchClock = ({ employee, onBack }: { employee: Employee, onBack: (
           <p className="text-sm text-industrial-muted mt-2">{time.toLocaleDateString('pt-BR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
           
           {/* Punch type indicator */}
-          <div className={`mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-full ${currentPunch.bg} ${currentPunch.color} font-bold text-sm`}>
-            <PunchIcon size={16} />
-            {currentPunch.label}
-          </div>
+          {!isShiftReady ? (
+            <div className="mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-full bg-corporate-blue/10 text-corporate-blue font-bold text-sm animate-pulse">
+              <Loader2 size={16} className="animate-spin" />
+              <span>Identificando Turno Atual...</span>
+            </div>
+          ) : (
+            <div className="flex flex-col items-center">
+              <div className={`mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-full ${currentPunch.bg} ${currentPunch.color} font-bold text-sm shadow-sm border border-current/15`}>
+                <PunchIcon size={16} />
+                <span>{currentPunch.label}</span>
+                {currentPunch.isFixed && (
+                  <span className="text-[10px] bg-white/90 border border-current/20 px-1.5 py-0.5 rounded font-mono uppercase tracking-wider ml-1 flex items-center gap-0.5">
+                    <Lock size={10} /> Fixo
+                  </span>
+                )}
+              </div>
+              
+              <div className="mt-2 flex items-center justify-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowShiftModal(true)}
+                  className="text-xs text-corporate-blue hover:text-corporate-blue/80 font-medium flex items-center gap-1.5 px-3 py-1 rounded-full bg-corporate-blue/5 hover:bg-corporate-blue/10 border border-corporate-blue/20 transition-all shadow-sm"
+                  title="Fixar ou escolher um turno específico manualmente"
+                >
+                  <SlidersHorizontal size={12} />
+                  {currentPunch.isFixed ? 'Alterar Turno Fixo' : 'Fixar / Alterar Turno'}
+                </button>
+                {currentPunch.isFixed && (
+                  <button
+                    type="button"
+                    onClick={() => setSelectedShiftOverride(null)}
+                    className="text-xs text-industrial-muted hover:text-industrial-text underline"
+                  >
+                    Voltar ao Automático
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
           
           {/* Today's punches summary */}
           {todayLogs.length > 0 && (
@@ -491,10 +631,20 @@ export const PunchClock = ({ employee, onBack }: { employee: Employee, onBack: (
                 <div className="flex flex-col gap-3">
                   <button 
                     onClick={handleAutomaticBiometric}
-                    className="w-full py-4 rounded-2xl bg-cyber-emerald text-white font-bold flex items-center justify-center gap-2 hover:bg-opacity-90 transition-all shadow-lg shadow-cyber-emerald/20"
+                    disabled={!isShiftReady}
+                    className="w-full py-4 rounded-2xl bg-cyber-emerald text-white font-bold flex items-center justify-center gap-2 hover:bg-opacity-90 transition-all shadow-lg shadow-cyber-emerald/20 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    {facialTemplate && !webAuthnCredentialId ? <Camera size={24} /> : <Fingerprint size={24} />} 
-                    {facialTemplate && !webAuthnCredentialId ? 'Reconhecimento Facial' : 'Reconhecimento de Biometria'}
+                    {!isShiftReady ? (
+                      <>
+                        <Loader2 size={24} className="animate-spin" />
+                        Verificando turno...
+                      </>
+                    ) : (
+                      <>
+                        {facialTemplate && !webAuthnCredentialId ? <Camera size={24} /> : <Fingerprint size={24} />} 
+                        {facialTemplate && !webAuthnCredentialId ? 'Reconhecimento Facial' : 'Reconhecimento de Biometria'}
+                      </>
+                    )}
                   </button>
                 </div>
               )}
@@ -507,7 +657,7 @@ export const PunchClock = ({ employee, onBack }: { employee: Employee, onBack: (
                   <div className="flex gap-2 w-full max-w-[320px]">
                     <button 
                       onClick={handleFacialPunch}
-                      disabled={isVerifyingFace}
+                      disabled={isVerifyingFace || !isShiftReady}
                       className="flex-1 py-3 rounded-xl bg-cyber-emerald text-white font-bold disabled:opacity-50"
                     >
                       {isVerifyingFace ? 'Aguarde...' : 'Capturar e Bater Ponto'}
@@ -528,11 +678,23 @@ export const PunchClock = ({ employee, onBack }: { employee: Employee, onBack: (
                     type="password" 
                     value={pinInput} 
                     onChange={e => setPinInput(e.target.value)} 
-                    placeholder="Digite sua senha" 
-                    className="w-full bg-industrial-bg border border-industrial-border rounded-xl p-3 text-center tracking-[0.25em] text-lg focus:border-cyber-emerald focus:outline-none"
+                    placeholder={!isShiftReady ? "Identificando turno..." : "Digite sua senha"} 
+                    disabled={!isShiftReady}
+                    className="w-full bg-industrial-bg border border-industrial-border rounded-xl p-3 text-center tracking-[0.25em] text-lg focus:border-cyber-emerald focus:outline-none disabled:opacity-60"
                   />
-                  <button onClick={handlePinAuth} className="w-full py-4 rounded-2xl bg-industrial-text text-white font-bold">
-                    {authMethod === 'strict' ? 'Próximo Passo (Biometria)' : 'Confirmar Senha'}
+                  <button 
+                    onClick={handlePinAuth} 
+                    disabled={!isShiftReady}
+                    className="w-full py-4 rounded-2xl bg-industrial-text text-white font-bold disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  >
+                    {!isShiftReady ? (
+                      <>
+                        <Loader2 size={20} className="animate-spin" />
+                        Aguarde o turno carregar...
+                      </>
+                    ) : (
+                      authMethod === 'strict' ? 'Próximo Passo (Biometria)' : 'Confirmar Senha'
+                    )}
                   </button>
                 </div>
               )}
@@ -553,6 +715,103 @@ export const PunchClock = ({ employee, onBack }: { employee: Employee, onBack: (
           )}
         </div>
       </motion.div>
+
+      {/* Modal para Fixar / Alterar Turno Manualmente */}
+      {showShiftModal && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-[1000] animate-fade-in">
+          <div className="bg-white rounded-3xl shadow-xl w-full max-w-sm overflow-hidden p-6 space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-industrial-border">
+              <h3 className="font-bold text-lg flex items-center gap-2 text-industrial-text">
+                <SlidersHorizontal size={20} className="text-corporate-blue" />
+                Fixar Turno da Batida
+              </h3>
+              <button 
+                type="button" 
+                onClick={() => setShowShiftModal(false)}
+                className="text-industrial-muted hover:text-industrial-text text-sm font-semibold"
+              >
+                ✕
+              </button>
+            </div>
+            
+            <p className="text-xs text-industrial-muted">
+              Selecione o turno específico para registrar este ponto ou retorne para a detecção automática:
+            </p>
+
+            <div className="space-y-2">
+              {ALL_MANUAL_TYPES.map(item => {
+                const isSelected = selectedShiftOverride === item.type;
+                const Icon = item.icon;
+                return (
+                  <button
+                    key={item.type}
+                    type="button"
+                    onClick={() => {
+                      setSelectedShiftOverride(item.type);
+                      setIsCheckingShift(false);
+                      setShowShiftModal(false);
+                    }}
+                    className={`w-full flex items-center justify-between p-3 rounded-2xl border transition-all text-left ${
+                      isSelected 
+                        ? 'border-corporate-blue bg-blue-50/50 shadow-sm ring-1 ring-corporate-blue' 
+                        : 'border-industrial-border hover:border-corporate-blue/50 hover:bg-industrial-bg'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className={`p-2 rounded-xl ${item.bg} ${item.color}`}>
+                        <Icon size={18} />
+                      </div>
+                      <div>
+                        <p className={`font-bold text-sm ${isSelected ? 'text-corporate-blue' : 'text-industrial-text'}`}>
+                          {item.label}
+                        </p>
+                        <p className="text-[11px] text-industrial-muted">{item.desc}</p>
+                      </div>
+                    </div>
+                    {isSelected && <Check size={18} className="text-corporate-blue" />}
+                  </button>
+                );
+              })}
+
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedShiftOverride(null);
+                  setShowShiftModal(false);
+                }}
+                className={`w-full flex items-center justify-between p-3 rounded-2xl border transition-all text-left ${
+                  !selectedShiftOverride 
+                    ? 'border-cyber-emerald bg-emerald-50/50 shadow-sm ring-1 ring-cyber-emerald' 
+                    : 'border-industrial-border hover:bg-industrial-bg'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-xl bg-cyber-emerald/10 text-cyber-emerald">
+                    <RefreshCw size={18} />
+                  </div>
+                  <div>
+                    <p className={`font-bold text-sm ${!selectedShiftOverride ? 'text-cyber-emerald' : 'text-industrial-text'}`}>
+                      Detecção Automática
+                    </p>
+                    <p className="text-[11px] text-industrial-muted">Calcula pela sequência de pontos de hoje</p>
+                  </div>
+                </div>
+                {!selectedShiftOverride && <Check size={18} className="text-cyber-emerald" />}
+              </button>
+            </div>
+
+            <div className="pt-2">
+              <button
+                type="button"
+                onClick={() => setShowShiftModal(false)}
+                className="w-full py-2.5 rounded-xl border border-industrial-border text-sm font-semibold hover:bg-industrial-bg transition-colors"
+              >
+                Fechar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {viewReportsAuth && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-[1000] animate-fade-in">

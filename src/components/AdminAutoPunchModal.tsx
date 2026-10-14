@@ -10,13 +10,22 @@ interface AutoPunchItem {
   minuteDiff: number;
 }
 
+export interface ExistingPunch {
+  id: string;
+  timestamp: string;
+  type: string;
+  timeStr: string;
+}
+
 interface DayPunches {
   date: string;
   dayOfWeekName: string;
   punches: AutoPunchItem[];
   hasExistingLogs: boolean;
+  existingLogs: ExistingPunch[];
   isDayOff: boolean;
   isHoliday: boolean;
+  isComplete: boolean;
 }
 
 interface AdminAutoPunchModalProps {
@@ -192,6 +201,94 @@ const getEmployeeScheduleSummary = (emp: Employee): string => {
   return 'Horário padrão (08:00 - 12:00 - 13:00 - 17:00)';
 };
 
+// Helpers para detecção e cálculo de batidas faltantes
+const toMinutes = (timeStr: string): number => {
+  if (!timeStr) return 0;
+  const [h, m] = timeStr.split(':').map(Number);
+  return (h || 0) * 60 + (m || 0);
+};
+
+const normalizeType = (s: string) =>
+  (s || '')
+    .toLowerCase()
+    .trim()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+
+const isEntryType = (t: string) => normalizeType(t).includes('entrada');
+const isExitType = (t: string) => normalizeType(t).includes('saida');
+
+const getPunchCost = (existing: ExistingPunch, bp: { type: string; baseTime: string }): number => {
+  const exM = toMinutes(existing.timeStr);
+  const bpM = toMinutes(bp.baseTime);
+  const diffM = Math.abs(exM - bpM);
+
+  const normEx = normalizeType(existing.type);
+  const normBp = normalizeType(bp.type);
+  const exactType = normEx === normBp;
+
+  const exEntry = isEntryType(existing.type);
+  const bpEntry = isEntryType(bp.type);
+  const exExit = isExitType(existing.type);
+  const bpExit = isExitType(bp.type);
+  const sameCategory = (exEntry && bpEntry) || (exExit && bpExit);
+
+  if (exactType) {
+    return diffM <= 180 ? diffM : diffM + 300;
+  }
+  if (sameCategory) {
+    return diffM + 100;
+  }
+  return diffM + 1000;
+};
+
+export const getMissingBasePunches = (
+  basePunches: { type: string; baseTime: string }[],
+  existingPunches: ExistingPunch[]
+): { type: string; baseTime: string }[] => {
+  if (!existingPunches || existingPunches.length === 0) {
+    return [...basePunches];
+  }
+
+  if (existingPunches.length >= basePunches.length) {
+    return [];
+  }
+
+  const n = basePunches.length;
+  const m = existingPunches.length;
+
+  let bestCost = Infinity;
+  let bestMatchedBpIndices = new Set<number>();
+
+  const generatePermutations = (currentIndices: number[], usedBase: boolean[]) => {
+    if (currentIndices.length === m) {
+      let cost = 0;
+      for (let i = 0; i < m; i++) {
+        cost += getPunchCost(existingPunches[i], basePunches[currentIndices[i]]);
+      }
+      if (cost < bestCost) {
+        bestCost = cost;
+        bestMatchedBpIndices = new Set(currentIndices);
+      }
+      return;
+    }
+
+    for (let j = 0; j < n; j++) {
+      if (!usedBase[j]) {
+        usedBase[j] = true;
+        currentIndices.push(j);
+        generatePermutations(currentIndices, usedBase);
+        currentIndices.pop();
+        usedBase[j] = false;
+      }
+    }
+  };
+
+  generatePermutations([], new Array(n).fill(false));
+
+  return basePunches.filter((_, idx) => !bestMatchedBpIndices.has(idx));
+};
+
 export const AdminAutoPunchModal: React.FC<AdminAutoPunchModalProps> = ({
   isOpen,
   onClose,
@@ -213,10 +310,11 @@ export const AdminAutoPunchModal: React.FC<AdminAutoPunchModalProps> = ({
   const [verificationMethod, setVerificationMethod] = useState<string>('Biometria');
   const [skipWeekends, setSkipWeekends] = useState<boolean>(true);
   const [skipHolidays, setSkipHolidays] = useState<boolean>(true);
-  const [existingAction, setExistingAction] = useState<'replace' | 'skip'>('replace');
+  const [existingAction, setExistingAction] = useState<'replace' | 'skip' | 'missing'>('missing');
 
   const [holidays, setHolidays] = useState<Holiday[]>([]);
   const [existingDatesSet, setExistingDatesSet] = useState<Set<string>>(new Set());
+  const [existingLogsByDate, setExistingLogsByDate] = useState<Record<string, ExistingPunch[]>>({});
   const [dayPunchesList, setDayPunchesList] = useState<DayPunches[]>([]);
   const [expandedDay, setExpandedDay] = useState<string | null>(null);
 
@@ -254,11 +352,12 @@ export const AdminAutoPunchModal: React.FC<AdminAutoPunchModalProps> = ({
     return Math.floor(Math.random() * (max - min + 1)) + min;
   };
 
-  // Checar quais datas já têm batidas no período
+  // Checar quais datas já têm batidas no período e recuperar logs existentes
   useEffect(() => {
     const checkExistingDates = async () => {
       if (!selectedEmployeeId) {
         setExistingDatesSet(new Set());
+        setExistingLogsByDate({});
         return;
       }
 
@@ -267,32 +366,56 @@ export const AdminAutoPunchModal: React.FC<AdminAutoPunchModalProps> = ({
 
       if (!queryStart || !queryEnd) {
         setExistingDatesSet(new Set());
+        setExistingLogsByDate({});
         return;
       }
 
       const { data } = await supabase
         .from('time_logs')
-        .select('timestamp')
+        .select('id, timestamp, type')
         .eq('employee_id', selectedEmployeeId)
         .gte('timestamp', `${queryStart}T00:00:00`)
-        .lte('timestamp', `${queryEnd}T23:59:59`);
+        .lte('timestamp', `${queryEnd}T23:59:59`)
+        .order('timestamp', { ascending: true });
 
       const setOfDates = new Set<string>();
+      const logsByDate: Record<string, ExistingPunch[]> = {};
+
       if (data) {
         data.forEach(l => {
-          const d = l.timestamp.split('T')[0];
-          setOfDates.add(d);
+          const dObj = new Date(l.timestamp);
+          const dateStr = !isNaN(dObj.getTime())
+            ? `${dObj.getFullYear()}-${String(dObj.getMonth() + 1).padStart(2, '0')}-${String(dObj.getDate()).padStart(2, '0')}`
+            : l.timestamp.split('T')[0];
+
+          const timeStr = !isNaN(dObj.getTime())
+            ? `${String(dObj.getHours()).padStart(2, '0')}:${String(dObj.getMinutes()).padStart(2, '0')}`
+            : '';
+
+          setOfDates.add(dateStr);
+
+          if (!logsByDate[dateStr]) {
+            logsByDate[dateStr] = [];
+          }
+          logsByDate[dateStr].push({
+            id: l.id,
+            timestamp: l.timestamp,
+            type: l.type || 'Batida',
+            timeStr
+          });
         });
       }
+
       setExistingDatesSet(setOfDates);
+      setExistingLogsByDate(logsByDate);
     };
 
     checkExistingDates();
   }, [selectedEmployeeId, selectedDate, startDate, endDate, mode]);
 
-  // Função para gerar as batidas de 1 dia específico com base na escala real do funcionário
-  const generatePunchesForSingleDate = (targetDateStr: string, schedInfo: EmployeeDayScheduleInfo): AutoPunchItem[] => {
-    return schedInfo.basePunches.map(bp => {
+  // Função para gerar as batidas com variação de minutos
+  const generatePunchesForBaseList = (baseList: { type: string; baseTime: string }[]): AutoPunchItem[] => {
+    return baseList.map(bp => {
       const diff = getRandomOffset(variationRange);
       const adjusted = addMinutesToTimeString(bp.baseTime, diff);
       return {
@@ -342,17 +465,32 @@ export const AdminAutoPunchModal: React.FC<AdminAutoPunchModalProps> = ({
       const shouldSkip = mode === 'range' && ((skipHolidays && isHoliday) || (skipWeekends && isDayOff));
 
       if (!shouldSkip) {
-        const punches = generatePunchesForSingleDate(dateStr, schedInfo);
-        if (punches.length > 0) {
-          list.push({
-            date: dateStr,
-            dayOfWeekName: DOW_NAMES[dow],
-            punches,
-            hasExistingLogs: existingDatesSet.has(dateStr),
-            isDayOff,
-            isHoliday
-          });
+        const existingForDay = existingLogsByDate[dateStr] || [];
+        const hasExisting = existingForDay.length > 0;
+
+        let basePunchesToUse = schedInfo.basePunches;
+        let isComplete = false;
+
+        // Se a opção for incluir apenas as que faltam e já existem batidas neste dia
+        if (existingAction === 'missing' && hasExisting) {
+          basePunchesToUse = getMissingBasePunches(schedInfo.basePunches, existingForDay);
+          if (basePunchesToUse.length === 0) {
+            isComplete = true;
+          }
         }
+
+        const punches = generatePunchesForBaseList(basePunchesToUse);
+
+        list.push({
+          date: dateStr,
+          dayOfWeekName: DOW_NAMES[dow],
+          punches,
+          hasExistingLogs: hasExisting,
+          existingLogs: existingForDay,
+          isDayOff,
+          isHoliday,
+          isComplete
+        });
       }
 
       current.setDate(current.getDate() + 1);
@@ -361,10 +499,10 @@ export const AdminAutoPunchModal: React.FC<AdminAutoPunchModalProps> = ({
     setDayPunchesList(list);
   };
 
-  // Recalcular quando mudar funcionário, datas, modo, variação ou filtros
+  // Recalcular quando mudar funcionário, datas, modo, variação, filtros ou ação de batidas existentes
   useEffect(() => {
     generateAllDaysPunches();
-  }, [selectedEmployeeId, selectedDate, startDate, endDate, mode, variationRange, skipWeekends, skipHolidays, existingDatesSet]);
+  }, [selectedEmployeeId, selectedDate, startDate, endDate, mode, variationRange, skipWeekends, skipHolidays, existingDatesSet, existingLogsByDate, existingAction]);
 
   const handleManualTimeChange = (dayIndex: number, punchIndex: number, newTime: string) => {
     setDayPunchesList(prev => {
@@ -388,6 +526,7 @@ export const AdminAutoPunchModal: React.FC<AdminAutoPunchModalProps> = ({
   // Contagem de dias elegíveis
   const activeDaysToProcess = dayPunchesList.filter(d => {
     if (d.hasExistingLogs && existingAction === 'skip') return false;
+    if (existingAction === 'missing' && d.punches.length === 0) return false;
     return true;
   });
 
@@ -401,20 +540,27 @@ export const AdminAutoPunchModal: React.FC<AdminAutoPunchModalProps> = ({
     }
 
     if (totalPunchesToInsert === 0) {
-      alert('Todos os dias selecionados já possuem batidas e a opção escolhida foi "Pular dias que já possuem batidas".');
+      const msg = existingAction === 'skip'
+        ? 'Todos os dias selecionados já possuem batidas e a opção escolhida foi "Pular dias que já possuem batidas".'
+        : 'Todos os dias selecionados já possuem todas as batidas previstas na escala (nada a incluir).';
+      alert(msg);
       return;
     }
 
-    const confirmMsg = mode === 'single'
-      ? `Confirma a gravação de ${totalPunchesToInsert} batida(s) para ${selectedEmployee.name}?`
-      : `Confirma a gravação de ${totalPunchesToInsert} batidas em ${activeDaysToProcess.length} dias para ${selectedEmployee.name}?`;
+    const confirmMsg = existingAction === 'missing'
+      ? (mode === 'single'
+          ? `Confirma a inclusão de ${totalPunchesToInsert} batida(s) faltante(s) para ${selectedEmployee.name}? (As batidas já existentes serão mantidas intactas)`
+          : `Confirma a inclusão de ${totalPunchesToInsert} batida(s) faltante(s) em ${activeDaysToProcess.length} dia(s) para ${selectedEmployee.name}? (As batidas já existentes serão mantidas intactas)`)
+      : (mode === 'single'
+          ? `Confirma a gravação de ${totalPunchesToInsert} batida(s) para ${selectedEmployee.name}?`
+          : `Confirma a gravação de ${totalPunchesToInsert} batidas em ${activeDaysToProcess.length} dias para ${selectedEmployee.name}?`);
 
     if (!confirm(confirmMsg)) return;
 
     setIsSaving(true);
 
     try {
-      // 1. Apagar batidas anteriores dos dias substituídos se for 'replace'
+      // 1. Apagar batidas anteriores dos dias substituídos APENAS se for 'replace'
       if (existingAction === 'replace') {
         const datesToReplace = activeDaysToProcess.filter(d => d.hasExistingLogs).map(d => d.date);
         for (const dStr of datesToReplace) {
@@ -479,7 +625,10 @@ export const AdminAutoPunchModal: React.FC<AdminAutoPunchModalProps> = ({
         if (error) throw error;
       }
 
-      alert(`Sucesso! ${allLogsToInsert.length} batidas foram registradas para ${selectedEmployee.name}!`);
+      const successMsg = existingAction === 'missing'
+        ? `Sucesso! ${allLogsToInsert.length} batida(s) faltante(s) foram incluídas com sucesso para ${selectedEmployee.name}!`
+        : `Sucesso! ${allLogsToInsert.length} batidas foram registradas para ${selectedEmployee.name}!`;
+      alert(successMsg);
       onSuccess();
       onClose();
     } catch (err: any) {
@@ -686,7 +835,19 @@ export const AdminAutoPunchModal: React.FC<AdminAutoPunchModalProps> = ({
                     : `${daysWithExistingLogsCount} dia(s) neste intervalo já possuem batidas registradas.`}
                 </span>
               </div>
-              <div className="flex flex-col sm:flex-row gap-3 pt-1">
+              <div className="flex flex-col sm:flex-row flex-wrap gap-x-4 gap-y-2 pt-1">
+                <label className="flex items-center gap-2 cursor-pointer font-medium text-amber-900">
+                  <input
+                    type="radio"
+                    name="existingAction"
+                    checked={existingAction === 'missing'}
+                    onChange={() => setExistingAction('missing')}
+                    className="text-cyber-emerald focus:ring-cyber-emerald"
+                  />
+                  <span>
+                    <strong>Apenas incluir as que faltam</strong> (mantém as atuais)
+                  </span>
+                </label>
                 <label className="flex items-center gap-2 cursor-pointer font-medium text-amber-900">
                   <input
                     type="radio"
@@ -695,7 +856,7 @@ export const AdminAutoPunchModal: React.FC<AdminAutoPunchModalProps> = ({
                     onChange={() => setExistingAction('replace')}
                     className="text-cyber-emerald focus:ring-cyber-emerald"
                   />
-                  Substituir batidas anteriores desses dias
+                  <span>Substituir batidas anteriores desses dias</span>
                 </label>
                 <label className="flex items-center gap-2 cursor-pointer font-medium text-amber-900">
                   <input
@@ -705,7 +866,7 @@ export const AdminAutoPunchModal: React.FC<AdminAutoPunchModalProps> = ({
                     onChange={() => setExistingAction('skip')}
                     className="text-cyber-emerald focus:ring-cyber-emerald"
                   />
-                  Pular dias já preenchidos (manter batidas atuais)
+                  <span>Pular dias já preenchidos (manter atuais)</span>
                 </label>
               </div>
             </div>
@@ -735,14 +896,17 @@ export const AdminAutoPunchModal: React.FC<AdminAutoPunchModalProps> = ({
               <div className="space-y-2.5 border border-industrial-border rounded-xl p-3 bg-white max-h-[260px] overflow-y-auto custom-scrollbar">
                 {dayPunchesList.map((day, dIdx) => {
                   const isSkipped = day.hasExistingLogs && existingAction === 'skip';
+                  const isComplete = day.hasExistingLogs && existingAction === 'missing' && day.punches.length === 0;
                   const isExpanded = expandedDay === day.date || mode === 'single';
 
                   return (
                     <div
                       key={day.date}
                       className={`p-3 rounded-xl border transition-all ${
-                        isSkipped
-                          ? 'bg-gray-50 border-gray-200 opacity-60'
+                        isSkipped || isComplete
+                          ? 'bg-gray-50 border-gray-200 opacity-75'
+                          : day.hasExistingLogs && existingAction === 'missing'
+                          ? 'bg-blue-50/50 border-blue-200'
                           : day.hasExistingLogs
                           ? 'bg-amber-50/40 border-amber-200'
                           : 'bg-industrial-bg/40 border-industrial-border'
@@ -752,13 +916,27 @@ export const AdminAutoPunchModal: React.FC<AdminAutoPunchModalProps> = ({
                         className="flex items-center justify-between cursor-pointer"
                         onClick={() => setExpandedDay(expandedDay === day.date ? null : day.date)}
                       >
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <span className="font-bold text-xs text-industrial-text">
                             {new Date(`${day.date}T12:00:00`).toLocaleDateString('pt-BR')} ({day.dayOfWeekName})
                           </span>
                           {day.hasExistingLogs && (
-                            <span className="text-[10px] bg-amber-100 text-amber-800 font-semibold px-1.5 py-0.2 rounded">
-                              {isSkipped ? 'Já preenchido (será pulado)' : 'Já preenchido (será substituído)'}
+                            <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
+                              isSkipped
+                                ? 'bg-gray-200 text-gray-700'
+                                : isComplete
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : existingAction === 'missing'
+                                ? 'bg-blue-100 text-blue-800'
+                                : 'bg-amber-100 text-amber-800'
+                            }`}>
+                              {isSkipped
+                                ? 'Já preenchido (será pulado)'
+                                : isComplete
+                                ? `Completo (${day.existingLogs?.length || 0} batidas já registradas)`
+                                : existingAction === 'missing'
+                                ? `Possui ${day.existingLogs?.length || 0} batida(s) (adicionará +${day.punches.length})`
+                                : 'Já preenchido (será substituído)'}
                             </span>
                           )}
                         </div>
@@ -766,7 +944,11 @@ export const AdminAutoPunchModal: React.FC<AdminAutoPunchModalProps> = ({
                         {mode === 'range' && (
                           <div className="flex items-center gap-1.5 text-industrial-muted text-xs">
                             <span className="font-medium text-[11px]">
-                              {day.punches.map(p => p.adjustedTime).join(' • ')}
+                              {day.punches.length > 0
+                                ? day.punches.map(p => p.adjustedTime).join(' • ')
+                                : isComplete
+                                ? 'Dia já completo'
+                                : 'Nenhuma batida'}
                             </span>
                             {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
                           </div>
@@ -775,31 +957,71 @@ export const AdminAutoPunchModal: React.FC<AdminAutoPunchModalProps> = ({
 
                       {/* Detalhamento das batidas do dia */}
                       {isExpanded && !isSkipped && (
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-3 pt-2.5 border-t border-industrial-border/60">
-                          {day.punches.map((p, pIdx) => (
-                            <div key={pIdx} className="bg-white p-2.5 rounded-lg border border-industrial-border shadow-xs">
-                              <div className="flex items-center justify-between gap-1">
-                                <span className="text-[10px] font-bold text-industrial-muted block truncate">{p.type}</span>
-                                <span className="text-[9px] text-industrial-muted font-mono bg-industrial-bg px-1 py-0.5 rounded" title="Horário base no cadastro">
-                                  Base: {p.baseTime}
-                                </span>
-                              </div>
-                              <div className="flex items-center justify-between mt-1.5">
-                                <input
-                                  type="time"
-                                  value={p.adjustedTime}
-                                  onChange={e => handleManualTimeChange(dIdx, pIdx, e.target.value)}
-                                  className="w-16 bg-white border border-industrial-border rounded px-1 text-xs font-mono font-bold focus:border-cyber-emerald focus:outline-none"
-                                />
-                                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
-                                  p.minuteDiff > 0 ? 'text-emerald-700 bg-emerald-50 border border-emerald-200' :
-                                  p.minuteDiff < 0 ? 'text-amber-700 bg-amber-50 border border-amber-200' : 'text-gray-500 bg-gray-50'
-                                }`}>
-                                  {p.minuteDiff > 0 ? `+${p.minuteDiff}m` : p.minuteDiff < 0 ? `${p.minuteDiff}m` : '0m'}
-                                </span>
+                        <div className="mt-3 pt-2.5 border-t border-industrial-border/60 space-y-2.5">
+                          {/* Exibir batidas já existentes no banco para este dia */}
+                          {day.hasExistingLogs && day.existingLogs && day.existingLogs.length > 0 && (
+                            <div className="bg-white/90 p-2.5 rounded-lg border border-industrial-border/60 text-xs">
+                              <span className="text-[10px] font-bold uppercase tracking-wider text-industrial-muted block mb-1.5">
+                                Batidas já registradas neste dia ({day.existingLogs.length}):
+                              </span>
+                              <div className="flex flex-wrap gap-1.5">
+                                {day.existingLogs.map((ex, eIdx) => (
+                                  <span
+                                    key={eIdx}
+                                    className="inline-flex items-center gap-1 bg-gray-100 text-gray-800 text-[10px] font-medium px-2 py-0.5 rounded border border-gray-200"
+                                  >
+                                    <Clock size={10} className="text-gray-500" />
+                                    <strong>{ex.timeStr}</strong> ({ex.type})
+                                  </span>
+                                ))}
                               </div>
                             </div>
-                          ))}
+                          )}
+
+                          {/* Se for modo 'missing' e não faltar nenhuma */}
+                          {isComplete && (
+                            <div className="p-2.5 text-xs text-emerald-800 bg-emerald-50 rounded-lg border border-emerald-200 flex items-center gap-2">
+                              <CheckCircle2 size={14} className="text-emerald-600 shrink-0" />
+                              <span>Todas as batidas previstas na escala já foram registradas para este dia. Nenhuma batida precisa ser adicionada.</span>
+                            </div>
+                          )}
+
+                          {/* Batidas a serem geradas/incluídas */}
+                          {day.punches.length > 0 && (
+                            <>
+                              {day.hasExistingLogs && existingAction === 'missing' && (
+                                <span className="text-[10px] font-bold uppercase tracking-wider text-blue-700 block">
+                                  Batidas faltantes que serão incluídas ({day.punches.length}):
+                                </span>
+                              )}
+                              <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                                {day.punches.map((p, pIdx) => (
+                                  <div key={pIdx} className="bg-white p-2.5 rounded-lg border border-industrial-border shadow-xs">
+                                    <div className="flex items-center justify-between gap-1">
+                                      <span className="text-[10px] font-bold text-industrial-muted block truncate">{p.type}</span>
+                                      <span className="text-[9px] text-industrial-muted font-mono bg-industrial-bg px-1 py-0.5 rounded" title="Horário base no cadastro">
+                                        Base: {p.baseTime}
+                                      </span>
+                                    </div>
+                                    <div className="flex items-center justify-between mt-1.5">
+                                      <input
+                                        type="time"
+                                        value={p.adjustedTime}
+                                        onChange={e => handleManualTimeChange(dIdx, pIdx, e.target.value)}
+                                        className="w-16 bg-white border border-industrial-border rounded px-1 text-xs font-mono font-bold focus:border-cyber-emerald focus:outline-none"
+                                      />
+                                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                                        p.minuteDiff > 0 ? 'text-emerald-700 bg-emerald-50 border border-emerald-200' :
+                                        p.minuteDiff < 0 ? 'text-amber-700 bg-amber-50 border border-amber-200' : 'text-gray-500 bg-gray-50'
+                                      }`}>
+                                        {p.minuteDiff > 0 ? `+${p.minuteDiff}m` : p.minuteDiff < 0 ? `${p.minuteDiff}m` : '0m'}
+                                      </span>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </>
+                          )}
                         </div>
                       )}
                     </div>

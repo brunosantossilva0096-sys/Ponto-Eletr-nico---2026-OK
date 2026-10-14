@@ -39,6 +39,29 @@ export const EmployeeSelect = ({ onSelectEmployee, onAdminLogin }: { onSelectEmp
         if (bioData) {
           localStorage.setItem('offline_templates', JSON.stringify(bioData));
         }
+
+        // Faz cache das batidas de hoje para abertura instantânea do turno
+        const todayDateStr = new Date().toISOString().split('T')[0];
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
+        const todayEnd = new Date();
+        todayEnd.setHours(23, 59, 59, 999);
+        const { data: todayLogsData } = await supabase
+          .from('time_logs')
+          .select('*')
+          .gte('timestamp', todayStart.toISOString())
+          .lte('timestamp', todayEnd.toISOString())
+          .order('timestamp', { ascending: true });
+        if (todayLogsData) {
+          const logsByEmp: Record<string, any[]> = {};
+          todayLogsData.forEach(l => {
+            if (!logsByEmp[l.employee_id]) logsByEmp[l.employee_id] = [];
+            logsByEmp[l.employee_id].push(l);
+          });
+          Object.entries(logsByEmp).forEach(([empId, empLogs]) => {
+            localStorage.setItem(`today_logs_${empId}_${todayDateStr}`, JSON.stringify(empLogs));
+          });
+        }
       } catch (err) {
         console.warn('Falha na sincronização de dados (Offline?)', err);
       }
