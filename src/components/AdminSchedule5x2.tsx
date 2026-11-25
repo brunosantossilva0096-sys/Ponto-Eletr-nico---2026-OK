@@ -26,6 +26,7 @@ import {
   GroupId,
   MtePolicyConfig,
   MteTransitionPhase,
+  resolveShiftForEmployeeInWeek,
   ScheduleEmployeeConfig,
   SHIFT_40H,
   SHIFT_42H,
@@ -36,7 +37,7 @@ import {
   Weekday,
 } from '../utils/scheduleSolver5x2';
 
-const STORAGE_KEY = 'ponto_schedule_5x2_config_v2';
+const STORAGE_KEY = 'ponto_schedule_5x2_config_v3';
 
 const MONTH_NAMES = [
   'Janeiro',
@@ -99,6 +100,12 @@ export const AdminSchedule5x2: React.FC = () => {
   // Novo colaborador
   const [newEmpName, setNewEmpName] = useState('');
   const [newEmpGroup, setNewEmpGroup] = useState<GroupId>('A');
+
+  // Nova regra individual (estilo regra coletiva, escolhendo o colaborador)
+  const [indRuleEmpId, setIndRuleEmpId] = useState<string>(initial.employees[0]?.id || '');
+  const [indRuleDays, setIndRuleDays] = useState<Weekday[]>([1, 2, 3, 4, 5]);
+  const [indRuleAlternate, setIndRuleAlternate] = useState<boolean>(false);
+  const [indRuleNote, setIndRuleNote] = useState<string>('');
 
   // Nova regra coletiva
   const [newRuleName, setNewRuleName] = useState('');
@@ -239,17 +246,17 @@ export const AdminSchedule5x2: React.FC = () => {
   const handleExportCSV = () => {
     if (!solverResult.success) return;
     const rows: string[] = [
-      'Semana;Limite MTE;Colaborador;Grupo;Folga Util;DSR;Jornada',
+      'Semana;Limite MTE;Colaborador;Grupo;Folga Util;DSR;Jornada Seg-Sex;Jornada Sabado',
     ];
     for (let i = 0; i < solverResult.weeks.length; i++) {
       const w = solverResult.weeks[i];
       const assign = solverResult.assignments[i];
-      const s = assign.appliedShift;
       for (const emp of employees) {
+        const s = resolveShiftForEmployeeInWeek(emp, assign.legalMaxWeeklyHours, assign.appliedShift, policy);
         const offDay = assign.offDayByEmployee[emp.id];
         const offDate = w.datesByDow[offDay] || '';
         rows.push(
-          `"${w.label}";"${assign.legalMaxWeeklyHours}h/sem";"${emp.name}";"Grupo ${emp.group}";"${WEEKDAY_LABELS[offDay]} (${offDate})";"Domingo (${w.datesByDow[0]})";"${s.workStart}-${s.workEnd}"`
+          `"${w.label}";"${assign.legalMaxWeeklyHours}h/sem";"${emp.name}";"Grupo ${emp.group}";"${WEEKDAY_LABELS[offDay]} (${offDate})";"Domingo (${w.datesByDow[0]})";"${s.workStart}-${s.workEnd} (Int. ${s.breakStart}-${s.breakEnd})";"${s.saturdayStart}-${s.saturdayEnd}"`
         );
       }
     }
@@ -513,7 +520,11 @@ export const AdminSchedule5x2: React.FC = () => {
                               : 'bg-amber-50 text-amber-700 border-amber-200'
                           }`}
                         >
-                          Vigência MTE: {assign.legalMaxWeeklyHours}h/sem ({assign.appliedShift.dailyHoursLabel}/dia • Int. {assign.appliedShift.breakStart}–{assign.appliedShift.breakEnd})
+                          {assign.legalMaxWeeklyHours >= 44
+                            ? 'Padrão Normal em uso: 44h/sem'
+                            : assign.legalMaxWeeklyHours === 42
+                            ? 'Vigência MTE (≥16/12/2026): 42h/sem • Grp A: 07h | Grp B: 07h45 | Iolanda/Bruno: 07h–17h'
+                            : `Vigência MTE: ${assign.legalMaxWeeklyHours}h/sem`}
                         </span>
                       </div>
                       <span className="text-[11px] font-medium text-industrial-muted">
@@ -552,6 +563,12 @@ export const AdminSchedule5x2: React.FC = () => {
                         <tbody className="divide-y divide-industrial-border/60">
                           {employees.map((emp) => {
                             const offDay = assign.offDayByEmployee[emp.id];
+                            const empShift = resolveShiftForEmployeeInWeek(
+                              emp,
+                              assign.legalMaxWeeklyHours,
+                              assign.appliedShift,
+                              policy
+                            );
                             return (
                               <tr key={emp.id} className="hover:bg-slate-50/80 transition-colors">
                                 <td className="py-2.5 px-4 font-semibold text-industrial-text">
@@ -582,8 +599,11 @@ export const AdminSchedule5x2: React.FC = () => {
                                           FOLGA
                                         </span>
                                       ) : (
-                                        <span className="inline-block px-2 py-1 rounded-lg bg-slate-100 text-slate-600 font-medium text-[11px]">
-                                          {assign.appliedShift.workStart}–{assign.appliedShift.workEnd}
+                                        <span
+                                          className="inline-block px-2 py-1 rounded-lg bg-slate-100 text-slate-600 font-medium text-[11px]"
+                                          title={`Intervalo: ${empShift.breakStart}–${empShift.breakEnd}`}
+                                        >
+                                          {empShift.workStart}–{empShift.workEnd}
                                         </span>
                                       )}
                                     </td>
@@ -591,7 +611,7 @@ export const AdminSchedule5x2: React.FC = () => {
                                 })}
                                 <td className="py-2 px-1.5 text-center">
                                   <span className="inline-block px-2 py-1 rounded-lg bg-slate-100 text-slate-600 font-medium text-[11px]">
-                                    {assign.appliedShift.workStart}–{assign.appliedShift.workEnd}
+                                    {empShift.saturdayStart}–{empShift.saturdayEnd}
                                   </span>
                                 </td>
                                 <td className="py-2 px-1.5 text-center">
@@ -742,6 +762,110 @@ export const AdminSchedule5x2: React.FC = () => {
                 </tbody>
               </table>
             </div>
+
+            {/* Adicionar / Aplicar Regra Individual (mesmo padrão da regra coletiva) */}
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (!indRuleEmpId || indRuleDays.length === 0) {
+                  alert('Selecione um colaborador e pelo menos 1 dia útil permitido.');
+                  return;
+                }
+                setEmployees((prev) =>
+                  prev.map((emp) =>
+                    emp.id === indRuleEmpId
+                      ? {
+                          ...emp,
+                          allowedDays: [...indRuleDays].sort((a, b) => a - b) as Weekday[],
+                          alternateDays: indRuleAlternate && indRuleDays.length >= 2,
+                          note: indRuleNote.trim() || emp.note,
+                        }
+                      : emp
+                  )
+                );
+                setIndRuleNote('');
+              }}
+              className="p-4 rounded-xl bg-industrial-bg border border-industrial-border space-y-3"
+            >
+              <div className="text-xs font-bold text-industrial-text">
+                Adicionar / Aplicar Regra Individual (Escolha o Colaborador)
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <select
+                  value={indRuleEmpId}
+                  onChange={(e) => {
+                    const id = e.target.value;
+                    setIndRuleEmpId(id);
+                    const found = employees.find((emp) => emp.id === id);
+                    if (found) {
+                      setIndRuleDays(found.allowedDays);
+                      setIndRuleAlternate(found.alternateDays);
+                    }
+                  }}
+                  className="px-3 py-2 rounded-lg border border-industrial-border bg-white text-xs font-semibold outline-none focus:border-cyber-emerald min-w-[180px]"
+                >
+                  {employees.map((emp) => (
+                    <option key={emp.id} value={emp.id}>
+                      {emp.name} (Grupo {emp.group})
+                    </option>
+                  ))}
+                </select>
+
+                <div className="flex items-center gap-1">
+                  {ALL_WEEKDAYS.map((day) => {
+                    const active = indRuleDays.includes(day);
+                    return (
+                      <button
+                        key={day}
+                        type="button"
+                        onClick={() => {
+                          setIndRuleDays((prev) => {
+                            if (prev.includes(day)) {
+                              return prev.length === 1 ? prev : prev.filter((d) => d !== day);
+                            }
+                            return [...prev, day].sort((a, b) => a - b) as Weekday[];
+                          });
+                        }}
+                        className={`px-2.5 py-1.5 rounded-md text-[11px] font-bold transition-all border ${
+                          active
+                            ? 'bg-cyber-emerald text-white border-cyber-emerald'
+                            : 'bg-white text-industrial-muted border-industrial-border hover:border-slate-400'
+                        }`}
+                      >
+                        {WEEKDAY_SHORT[day]}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <label className="flex items-center gap-1.5 text-xs font-medium text-industrial-text cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={indRuleAlternate}
+                    onChange={(e) => setIndRuleAlternate(e.target.checked)}
+                    disabled={indRuleDays.length < 2}
+                    className="w-4 h-4 accent-emerald-500"
+                  />
+                  Alternar semanas
+                </label>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <input
+                  type="text"
+                  placeholder="Descrição opcional da regra individual..."
+                  value={indRuleNote}
+                  onChange={(e) => setIndRuleNote(e.target.value)}
+                  className="px-3 py-2 rounded-lg border border-industrial-border bg-white text-xs outline-none focus:border-cyber-emerald flex-1 min-w-[220px]"
+                />
+                <button
+                  type="submit"
+                  className="px-4 py-2 rounded-lg bg-cyber-emerald text-white text-xs font-bold flex items-center gap-1.5 hover:bg-opacity-90"
+                >
+                  <Plus size={14} /> Aplicar Regra Individual
+                </button>
+              </div>
+            </form>
 
             {/* Adicionar colaborador */}
             <form

@@ -44,7 +44,10 @@ export interface ShiftTemplate {
   breakStart: string;
   breakEnd: string;
   workEnd: string;
+  saturdayStart: string;
+  saturdayEnd: string;
   dailyHoursLabel: string;
+  saturdayHoursLabel: string;
   weeklyHours: number;
 }
 
@@ -62,34 +65,86 @@ export const DEFAULT_MTE_POLICY: MtePolicyConfig = {
   transition40Date: '',
 };
 
+// Padrão normal de 44h semanais (vigente até 15/12/2026)
 export const SHIFT_44H: ShiftTemplate = {
   workStart: '08:00',
   breakStart: '12:00',
-  breakEnd: '13:12',
-  workEnd: '18:00', // 8h48min líquidos/dia × 5 = 44h semanais
-  dailyHoursLabel: '08h48min',
+  breakEnd: '13:00',
+  workEnd: '18:00', // 9h00/dia × 4 dias = 36h
+  saturdayStart: '08:00',
+  saturdayEnd: '16:00', // 8h00 no sábado = 44h semanais (ou padrão normal 44h)
+  dailyHoursLabel: '09h00min',
+  saturdayHoursLabel: '08h00min',
   weeklyHours: 44,
 };
 
-export const SHIFT_42H: ShiftTemplate = {
-  workStart: '08:00',
+// 42h semanais a partir de 16/12/2026 — Grupo A (Entrada 07:00)
+export const SHIFT_42H_GROUP_A: ShiftTemplate = {
+  workStart: '07:00',
   breakStart: '12:00',
   breakEnd: '13:00',
-  workEnd: '17:24', // 8h24min líquidos/dia × 5 = 42h semanais (vigente a partir de 16/12/2026)
-  dailyHoursLabel: '08h24min',
+  workEnd: '17:15', // 9h15/dia × 4 dias = 37h00
+  saturdayStart: '07:00',
+  saturdayEnd: '12:00', // 5h00 no sábado -> 37h + 5h = 42h00
+  dailyHoursLabel: '09h15min',
+  saturdayHoursLabel: '05h00min',
   weeklyHours: 42,
 };
+
+// 42h semanais a partir de 16/12/2026 — Grupo B (Entrada 07:45)
+export const SHIFT_42H_GROUP_B: ShiftTemplate = {
+  workStart: '07:45',
+  breakStart: '12:45',
+  breakEnd: '13:45',
+  workEnd: '18:00', // 9h15/dia × 4 dias = 37h00
+  saturdayStart: '07:45',
+  saturdayEnd: '12:45', // 5h00 no sábado -> 37h + 5h = 42h00
+  dailyHoursLabel: '09h15min',
+  saturdayHoursLabel: '05h00min',
+  weeklyHours: 42,
+};
+
+// 42h semanais específico — Iolanda (Entrada 07:00, almoço 12:00-13:00, saída 17:00, sáb 07:00-13:00)
+export const SHIFT_42H_IOLANDA: ShiftTemplate = {
+  workStart: '07:00',
+  breakStart: '12:00',
+  breakEnd: '13:00',
+  workEnd: '17:00', // 9h00/dia × 4 dias = 36h00
+  saturdayStart: '07:00',
+  saturdayEnd: '13:00', // 6h00 no sábado -> 36h + 6h = 42h00
+  dailyHoursLabel: '09h00min',
+  saturdayHoursLabel: '06h00min',
+  weeklyHours: 42,
+};
+
+// 42h semanais específico — Bruno (Entrada 07:00, almoço 11:00-12:00, saída 17:00, sáb 07:00-13:00)
+export const SHIFT_42H_BRUNO: ShiftTemplate = {
+  workStart: '07:00',
+  breakStart: '11:00',
+  breakEnd: '12:00',
+  workEnd: '17:00', // 9h00/dia × 4 dias = 36h00
+  saturdayStart: '07:00',
+  saturdayEnd: '13:00', // 6h00 no sábado -> 36h + 6h = 42h00
+  dailyHoursLabel: '09h00min',
+  saturdayHoursLabel: '06h00min',
+  weeklyHours: 42,
+};
+
+export const SHIFT_42H: ShiftTemplate = SHIFT_42H_GROUP_A;
 
 export const SHIFT_40H: ShiftTemplate = {
   workStart: '08:00',
   breakStart: '12:00',
   breakEnd: '13:00',
-  workEnd: '17:00', // 8h00min líquidos/dia × 5 = 40h semanais (transição completa)
+  workEnd: '17:00', // 8h00/dia × 5 dias = 40h00
+  saturdayStart: '08:00',
+  saturdayEnd: '12:00', // placeholder para modo 40h
   dailyHoursLabel: '08h00min',
+  saturdayHoursLabel: '00h00min',
   weeklyHours: 40,
 };
 
-export const DEFAULT_SHIFT_TEMPLATE: ShiftTemplate = SHIFT_42H;
+export const DEFAULT_SHIFT_TEMPLATE: ShiftTemplate = SHIFT_42H_GROUP_A;
 
 export const DEFAULT_SCHEDULE_EMPLOYEES: ScheduleEmployeeConfig[] = [
   {
@@ -497,10 +552,42 @@ export function resolveShiftForWeek(
 ): ShiftTemplate {
   if (policy.phaseMode === 'auto') {
     if (legalMaxHours <= 40) return SHIFT_40H;
-    if (legalMaxHours <= 42) return SHIFT_42H;
+    if (legalMaxHours <= 42) return SHIFT_42H_GROUP_A;
     return SHIFT_44H;
   }
   return customShift;
+}
+
+/**
+ * Seleciona o turno específico de cada colaborador na semana:
+ * - Antes de 16/12/2026 (44h): Padrão normal de 44h em uso
+ * - A partir de 16/12/2026 (42h):
+ *   - Iolanda: 07:00–17:00 (int. 12:00–13:00), Sáb 07:00–13:00 (42h)
+ *   - Bruno: 07:00–17:00 (int. 11:00–12:00), Sáb 07:00–13:00 (42h)
+ *   - Grupo A: 07:00–17:15 (int. 12:00–13:00), Sáb 07:00–12:00 (42h)
+ *   - Grupo B: 07:45–18:00 (int. 12:45–13:45), Sáb 07:45–12:45 (42h)
+ */
+export function resolveShiftForEmployeeInWeek(
+  emp: ScheduleEmployeeConfig,
+  legalMaxHours: number,
+  customShift: ShiftTemplate,
+  policy: MtePolicyConfig
+): ShiftTemplate {
+  if (policy.phaseMode !== 'auto') {
+    return customShift;
+  }
+  if (legalMaxHours <= 40) return SHIFT_40H;
+  if (legalMaxHours >= 44) return SHIFT_44H;
+
+  // Vigência 42h (a partir de 16/12/2026)
+  const normalizedName = emp.name.trim().toLowerCase();
+  if (emp.id === 'iolanda' || normalizedName === 'iolanda') {
+    return SHIFT_42H_IOLANDA;
+  }
+  if (emp.id === 'bruno' || normalizedName === 'bruno') {
+    return SHIFT_42H_BRUNO;
+  }
+  return emp.group === 'B' ? SHIFT_42H_GROUP_B : SHIFT_42H_GROUP_A;
 }
 
 /**
@@ -584,9 +671,15 @@ function calculateShiftMetrics(shift: ShiftTemplate) {
   const endMin = parseMinutes(shift.workEnd);
   const breakDuration = breakEndMin - breakStartMin;
   const dailyWorkMinutes = endMin - startMin - breakDuration;
-  const weeklyMinutes = dailyWorkMinutes * 5;
+
+  const satStartMin = parseMinutes(shift.saturdayStart || shift.workStart);
+  const satEndMin = parseMinutes(shift.saturdayEnd || shift.workEnd);
+  const satWorkMinutes = Math.max(0, satEndMin - satStartMin);
+
+  // Escala 5x2: 4 dias úteis trabalhados (1 folga útil) + Sábado (ou 5 dias se sábado = 0)
+  const weeklyMinutes = satWorkMinutes > 0 ? dailyWorkMinutes * 4 + satWorkMinutes : dailyWorkMinutes * 5;
   const interjornadaMinutes = 24 * 60 - (endMin - startMin);
-  return { breakDuration, dailyWorkMinutes, weeklyMinutes, interjornadaMinutes };
+  return { breakDuration, dailyWorkMinutes, satWorkMinutes, weeklyMinutes, interjornadaMinutes };
 }
 
 function runScheduleAudit(
@@ -607,26 +700,37 @@ function runScheduleAudit(
   for (let i = 0; i < weeks.length; i++) {
     const w = weeks[i];
     const assign = assignments[i];
-    const m = calculateShiftMetrics(assign.appliedShift);
-    const weeklyHoursActual = m.weeklyMinutes / 60;
+    let maxWeeklySeen = 0;
+
+    for (const emp of employees) {
+      const empShift = resolveShiftForEmployeeInWeek(
+        emp,
+        assign.legalMaxWeeklyHours,
+        assign.appliedShift,
+        policy
+      );
+      const m = calculateShiftMetrics(empShift);
+      const weeklyHoursActual = m.weeklyMinutes / 60;
+      maxWeeklySeen = Math.max(maxWeeklySeen, weeklyHoursActual);
+
+      if (m.dailyWorkMinutes <= 0 || m.weeklyMinutes > assign.legalMaxWeeklyHours * 60) {
+        weekLimitFailures.push(
+          `${w.label} (${emp.name}): ${weeklyHoursActual.toFixed(2)}h excede limite de ${assign.legalMaxWeeklyHours}h`
+        );
+      }
+      if (m.dailyWorkMinutes > 6 * 60 && m.breakDuration < 60) {
+        intraFailures.push(`${w.label} (${emp.name}): intervalo de ${m.breakDuration} min (< 60 min)`);
+      }
+      if (m.interjornadaMinutes < 11 * 60) {
+        interFailures.push(
+          `${w.label} (${emp.name}): interjornada de ${(m.interjornadaMinutes / 60).toFixed(2)}h (< 11h)`
+        );
+      }
+    }
 
     weekSummaries.push(
-      `Sem ${i + 1}: ${weeklyHoursActual.toFixed(1).replace('.0', '')}h/${assign.legalMaxWeeklyHours}h`
+      `Sem ${i + 1}: ${maxWeeklySeen.toFixed(1).replace('.0', '')}h/${assign.legalMaxWeeklyHours}h`
     );
-
-    if (m.dailyWorkMinutes <= 0 || m.weeklyMinutes > assign.legalMaxWeeklyHours * 60) {
-      weekLimitFailures.push(
-        `${w.label}: ${weeklyHoursActual.toFixed(2)}h excede limite de ${assign.legalMaxWeeklyHours}h`
-      );
-    }
-    if (m.dailyWorkMinutes > 6 * 60 && m.breakDuration < 60) {
-      intraFailures.push(`${w.label}: intervalo de ${m.breakDuration} min (< 60 min)`);
-    }
-    if (m.interjornadaMinutes < 11 * 60) {
-      interFailures.push(
-        `${w.label}: interjornada de ${(m.interjornadaMinutes / 60).toFixed(2)}h (< 11h)`
-      );
-    }
   }
 
   checks.push({
