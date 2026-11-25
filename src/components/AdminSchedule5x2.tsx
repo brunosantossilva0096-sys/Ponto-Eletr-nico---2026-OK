@@ -16,6 +16,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import {
+  ALL_OFF_DAYS,
   ALL_WEEKDAYS,
   CollectiveRule,
   DEFAULT_COLLECTIVE_RULES,
@@ -31,13 +32,14 @@ import {
   SHIFT_40H,
   SHIFT_42H,
   SHIFT_44H,
+  ShiftProfileId,
   ShiftTemplate,
   WEEKDAY_LABELS,
   WEEKDAY_SHORT,
   Weekday,
 } from '../utils/scheduleSolver5x2';
 
-const STORAGE_KEY = 'ponto_schedule_5x2_config_v3';
+const STORAGE_KEY = 'ponto_schedule_5x2_config_v4';
 
 const MONTH_NAMES = [
   'Janeiro',
@@ -102,9 +104,18 @@ export const AdminSchedule5x2: React.FC = () => {
   const [newEmpGroup, setNewEmpGroup] = useState<GroupId>('A');
 
   // Nova regra individual (estilo regra coletiva, escolhendo o colaborador)
+  const [groupFilter, setGroupFilter] = useState<'ALL' | GroupId>('ALL');
   const [indRuleEmpId, setIndRuleEmpId] = useState<string>(initial.employees[0]?.id || '');
-  const [indRuleDays, setIndRuleDays] = useState<Weekday[]>([1, 2, 3, 4, 5]);
-  const [indRuleAlternate, setIndRuleAlternate] = useState<boolean>(false);
+  const [indRuleGroup, setIndRuleGroup] = useState<GroupId>(initial.employees[0]?.group || 'A');
+  const [indRuleProfile, setIndRuleProfile] = useState<ShiftProfileId>(
+    initial.employees[0]?.shiftProfile || 'group'
+  );
+  const [indRuleDays, setIndRuleDays] = useState<Weekday[]>(
+    initial.employees[0]?.allowedDays || [1, 2, 3, 4, 5]
+  );
+  const [indRuleAlternate, setIndRuleAlternate] = useState<boolean>(
+    initial.employees[0]?.alternateDays || false
+  );
   const [indRuleNote, setIndRuleNote] = useState<string>('');
 
   // Nova regra coletiva
@@ -252,11 +263,17 @@ export const AdminSchedule5x2: React.FC = () => {
       const w = solverResult.weeks[i];
       const assign = solverResult.assignments[i];
       for (const emp of employees) {
-        const s = resolveShiftForEmployeeInWeek(emp, assign.legalMaxWeeklyHours, assign.appliedShift, policy);
         const offDay = assign.offDayByEmployee[emp.id];
+        const s = resolveShiftForEmployeeInWeek(
+          emp,
+          assign.legalMaxWeeklyHours,
+          assign.appliedShift,
+          policy,
+          offDay
+        );
         const offDate = w.datesByDow[offDay] || '';
         rows.push(
-          `"${w.label}";"${assign.legalMaxWeeklyHours}h/sem";"${emp.name}";"Grupo ${emp.group}";"${WEEKDAY_LABELS[offDay]} (${offDate})";"Domingo (${w.datesByDow[0]})";"${s.workStart}-${s.workEnd} (Int. ${s.breakStart}-${s.breakEnd})";"${s.saturdayStart}-${s.saturdayEnd}"`
+          `"${w.label}";"${assign.legalMaxWeeklyHours}h/sem";"${emp.name}";"Grupo ${emp.group}";"${WEEKDAY_LABELS[offDay]} (${offDate})";"Domingo (${w.datesByDow[0]})";"${s.workStart}-${s.workEnd} (Int. ${s.breakStart}-${s.breakEnd})";"${offDay === 6 ? 'FOLGA' : `${s.saturdayStart}-${s.saturdayEnd}`}"`
         );
       }
     }
@@ -333,7 +350,7 @@ export const AdminSchedule5x2: React.FC = () => {
           offDay === 3 ? 'FOLGA' : 'Trab',
           offDay === 4 ? 'FOLGA' : 'Trab',
           offDay === 5 ? 'FOLGA' : 'Trab',
-          'Trab',
+          offDay === 6 ? 'FOLGA' : 'Trab',
           'DSR',
         ];
         x = 14;
@@ -567,7 +584,8 @@ export const AdminSchedule5x2: React.FC = () => {
                               emp,
                               assign.legalMaxWeeklyHours,
                               assign.appliedShift,
-                              policy
+                              policy,
+                              offDay
                             );
                             return (
                               <tr key={emp.id} className="hover:bg-slate-50/80 transition-colors">
@@ -610,9 +628,15 @@ export const AdminSchedule5x2: React.FC = () => {
                                   );
                                 })}
                                 <td className="py-2 px-1.5 text-center">
-                                  <span className="inline-block px-2 py-1 rounded-lg bg-slate-100 text-slate-600 font-medium text-[11px]">
-                                    {empShift.saturdayStart}–{empShift.saturdayEnd}
-                                  </span>
+                                  {offDay === 6 ? (
+                                    <span className="inline-block px-2.5 py-1 rounded-lg bg-emerald-100 text-emerald-800 font-bold text-[11px] border border-emerald-300">
+                                      FOLGA
+                                    </span>
+                                  ) : (
+                                    <span className="inline-block px-2 py-1 rounded-lg bg-slate-100 text-slate-600 font-medium text-[11px]">
+                                      {empShift.saturdayStart}–{empShift.saturdayEnd}
+                                    </span>
+                                  )}
                                 </td>
                                 <td className="py-2 px-1.5 text-center">
                                   <span className="inline-block px-2.5 py-1 rounded-lg bg-amber-50 text-amber-700 font-bold text-[11px] border border-amber-200">
@@ -628,7 +652,7 @@ export const AdminSchedule5x2: React.FC = () => {
                             <td colSpan={2} className="py-2.5 px-4 text-industrial-muted">
                               Cobertura Diária (Presentes)
                             </td>
-                            {ALL_WEEKDAYS.map((d) => {
+                            {ALL_OFF_DAYS.map((d) => {
                               const offA = employees.filter(
                                 (e) => e.group === 'A' && assign.offDayByEmployee[e.id] === d
                               ).length;
@@ -648,9 +672,6 @@ export const AdminSchedule5x2: React.FC = () => {
                                 </td>
                               );
                             })}
-                            <td className="py-2 px-1 text-center text-industrial-text">
-                              {employees.length}/{employees.length}
-                            </td>
                             <td className="py-2 px-1 text-center text-amber-700">DSR Geral</td>
                           </tr>
                         </tfoot>
@@ -668,23 +689,41 @@ export const AdminSchedule5x2: React.FC = () => {
       {subTab === 'conditions' && (
         <div className="space-y-6">
           {/* Condições Individuais */}
-          <div className="bg-white p-6 rounded-2xl shadow-sm border border-industrial-border space-y-4">
+          <div className="bg-white p-6 rounded-2xl shadow-sm border border-industrial-border space-y-5">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <h3 className="font-bold text-base text-industrial-text flex items-center gap-2">
                   <Users size={18} className="text-cyber-emerald" />
-                  Condições Individuais (Folga Útil Semanal + Domingo)
+                  Condições Individuais (Folga Semanal Seg–Sáb + DSR Domingo)
                 </h3>
                 <p className="text-xs text-industrial-muted mt-0.5">
-                  Marque os dias úteis permitidos para folga de cada colaborador e defina se há alternância entre semanas.
+                  Todas as regras são maleáveis por colaborador: dias permitidos (incluindo somente Sábado), grupo, perfil de horário e alternância.
                 </p>
               </div>
-              <button
-                onClick={handleRestoreDefaults}
-                className="px-3 py-1.5 rounded-lg border border-industrial-border text-xs font-semibold text-industrial-muted hover:text-industrial-text hover:border-industrial-text flex items-center gap-1.5"
-              >
-                <RotateCcw size={13} /> Restaurar Padrões
-              </button>
+              <div className="flex items-center gap-2 flex-wrap">
+                <div className="flex bg-industrial-bg p-1 rounded-lg border border-industrial-border text-[11px] font-semibold">
+                  {(['ALL', 'A', 'B'] as const).map((g) => (
+                    <button
+                      key={g}
+                      type="button"
+                      onClick={() => setGroupFilter(g)}
+                      className={`px-2.5 py-1 rounded-md transition-all ${
+                        groupFilter === g
+                          ? 'bg-white text-cyber-emerald shadow-sm'
+                          : 'text-industrial-muted hover:text-industrial-text'
+                      }`}
+                    >
+                      {g === 'ALL' ? 'Todos' : `Grupo ${g}`}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  onClick={handleRestoreDefaults}
+                  className="px-3 py-1.5 rounded-lg border border-industrial-border text-xs font-semibold text-industrial-muted hover:text-industrial-text hover:border-industrial-text flex items-center gap-1.5"
+                >
+                  <RotateCcw size={13} /> Restaurar Padrões
+                </button>
+              </div>
             </div>
 
             <div className="overflow-x-auto">
@@ -693,14 +732,17 @@ export const AdminSchedule5x2: React.FC = () => {
                   <tr className="border-b border-industrial-border text-industrial-muted bg-industrial-bg">
                     <th className="text-left py-2.5 px-3 font-semibold">Colaborador</th>
                     <th className="text-center py-2.5 px-2 font-semibold">Grupo</th>
-                    <th className="text-center py-2.5 px-2 font-semibold">Dias Permitidos (Seg–Sex)</th>
-                    <th className="text-center py-2.5 px-2 font-semibold">Alternar Semanas</th>
+                    <th className="text-center py-2.5 px-2 font-semibold">Perfil 42h</th>
+                    <th className="text-center py-2.5 px-2 font-semibold">Dias Permitidos (Seg–Sáb)</th>
+                    <th className="text-center py-2.5 px-2 font-semibold">Alternar</th>
                     <th className="text-left py-2.5 px-3 font-semibold">Observação / Regra</th>
                     <th className="text-center py-2.5 px-2 font-semibold">Ação</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-industrial-border/60">
-                  {employees.map((emp) => (
+                  {employees
+                    .filter((emp) => groupFilter === 'ALL' || emp.group === groupFilter)
+                    .map((emp) => (
                     <tr key={emp.id} className="hover:bg-slate-50/70">
                       <td className="py-2.5 px-3 font-bold text-industrial-text">{emp.name}</td>
                       <td className="py-2.5 px-2 text-center">
@@ -713,16 +755,36 @@ export const AdminSchedule5x2: React.FC = () => {
                           <option value="B">Grupo B</option>
                         </select>
                       </td>
+                      <td className="py-2.5 px-2 text-center">
+                        <select
+                          value={emp.shiftProfile || 'group'}
+                          onChange={(e) => {
+                            const val = e.target.value as ShiftProfileId;
+                            setEmployees((prev) =>
+                              prev.map((item) =>
+                                item.id === emp.id ? { ...item, shiftProfile: val } : item
+                              )
+                            );
+                          }}
+                          className="px-2 py-1 rounded-md border border-industrial-border bg-white font-medium text-[11px] outline-none"
+                        >
+                          <option value="group">
+                            Padrão Grupo {emp.group} ({emp.group === 'A' ? '07:00' : '07:45'})
+                          </option>
+                          <option value="iolanda">07:00–17:00 (Int. 12–13h)</option>
+                          <option value="bruno">07:00–17:00 (Int. 11–12h)</option>
+                        </select>
+                      </td>
                       <td className="py-2.5 px-2">
-                        <div className="flex items-center justify-center gap-1">
-                          {ALL_WEEKDAYS.map((day) => {
+                        <div className="flex items-center justify-center gap-1 flex-wrap">
+                          {ALL_OFF_DAYS.map((day) => {
                             const active = emp.allowedDays.includes(day);
                             return (
                               <button
                                 key={day}
                                 type="button"
                                 onClick={() => toggleAllowedDay(emp.id, day)}
-                                className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-all border ${
+                                className={`px-2 py-1 rounded-md text-[11px] font-bold transition-all border ${
                                   active
                                     ? 'bg-cyber-emerald text-white border-cyber-emerald'
                                     : 'bg-white text-industrial-muted border-industrial-border hover:border-slate-400'
@@ -732,6 +794,31 @@ export const AdminSchedule5x2: React.FC = () => {
                               </button>
                             );
                           })}
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setEmployees((prev) =>
+                                prev.map((item) =>
+                                  item.id === emp.id
+                                    ? {
+                                        ...item,
+                                        allowedDays: [6],
+                                        alternateDays: false,
+                                        note: 'Somente folga ao Sábado',
+                                      }
+                                    : item
+                                )
+                              )
+                            }
+                            className={`px-2 py-1 rounded-md text-[10px] font-bold border transition-all ${
+                              emp.allowedDays.length === 1 && emp.allowedDays[0] === 6
+                                ? 'bg-amber-500 text-white border-amber-500'
+                                : 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100'
+                            }`}
+                            title="Definir folga somente ao Sábado"
+                          >
+                            Só Sáb
+                          </button>
                         </div>
                       </td>
                       <td className="py-2.5 px-2 text-center">
@@ -768,7 +855,7 @@ export const AdminSchedule5x2: React.FC = () => {
               onSubmit={(e) => {
                 e.preventDefault();
                 if (!indRuleEmpId || indRuleDays.length === 0) {
-                  alert('Selecione um colaborador e pelo menos 1 dia útil permitido.');
+                  alert('Selecione um colaborador e pelo menos 1 dia permitido.');
                   return;
                 }
                 setEmployees((prev) =>
@@ -776,6 +863,8 @@ export const AdminSchedule5x2: React.FC = () => {
                     emp.id === indRuleEmpId
                       ? {
                           ...emp,
+                          group: indRuleGroup,
+                          shiftProfile: indRuleProfile,
                           allowedDays: [...indRuleDays].sort((a, b) => a - b) as Weekday[],
                           alternateDays: indRuleAlternate && indRuleDays.length >= 2,
                           note: indRuleNote.trim() || emp.note,
@@ -787,9 +876,45 @@ export const AdminSchedule5x2: React.FC = () => {
               }}
               className="p-4 rounded-xl bg-industrial-bg border border-industrial-border space-y-3"
             >
-              <div className="text-xs font-bold text-industrial-text">
-                Adicionar / Aplicar Regra Individual (Escolha o Colaborador)
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="text-xs font-bold text-industrial-text">
+                  Configurar Regra Individual (Escolha o Colaborador)
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIndRuleDays([6]);
+                      setIndRuleAlternate(false);
+                      setIndRuleNote('Somente folga ao Sábado');
+                    }}
+                    className="px-2 py-1 rounded-md bg-amber-50 text-amber-700 border border-amber-200 text-[10px] font-bold hover:bg-amber-100"
+                  >
+                    Preset: Somente Sábado
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIndRuleDays([1, 2, 3, 4, 5]);
+                      setIndRuleAlternate(false);
+                    }}
+                    className="px-2 py-1 rounded-md bg-white text-industrial-text border border-industrial-border text-[10px] font-semibold hover:border-cyber-emerald"
+                  >
+                    Preset: Seg–Sex
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIndRuleDays([2, 5]);
+                      setIndRuleAlternate(true);
+                    }}
+                    className="px-2 py-1 rounded-md bg-white text-industrial-text border border-industrial-border text-[10px] font-semibold hover:border-cyber-emerald"
+                  >
+                    Preset: Ter/Sex (Alterna)
+                  </button>
+                </div>
               </div>
+
               <div className="flex flex-wrap items-center gap-3">
                 <select
                   value={indRuleEmpId}
@@ -798,11 +923,13 @@ export const AdminSchedule5x2: React.FC = () => {
                     setIndRuleEmpId(id);
                     const found = employees.find((emp) => emp.id === id);
                     if (found) {
+                      setIndRuleGroup(found.group);
+                      setIndRuleProfile(found.shiftProfile || 'group');
                       setIndRuleDays(found.allowedDays);
                       setIndRuleAlternate(found.alternateDays);
                     }
                   }}
-                  className="px-3 py-2 rounded-lg border border-industrial-border bg-white text-xs font-semibold outline-none focus:border-cyber-emerald min-w-[180px]"
+                  className="px-3 py-2 rounded-lg border border-industrial-border bg-white text-xs font-semibold outline-none focus:border-cyber-emerald min-w-[170px]"
                 >
                   {employees.map((emp) => (
                     <option key={emp.id} value={emp.id}>
@@ -811,8 +938,27 @@ export const AdminSchedule5x2: React.FC = () => {
                   ))}
                 </select>
 
-                <div className="flex items-center gap-1">
-                  {ALL_WEEKDAYS.map((day) => {
+                <select
+                  value={indRuleGroup}
+                  onChange={(e) => setIndRuleGroup(e.target.value as GroupId)}
+                  className="px-2.5 py-2 rounded-lg border border-industrial-border bg-white text-xs font-semibold outline-none"
+                >
+                  <option value="A">Grupo A</option>
+                  <option value="B">Grupo B</option>
+                </select>
+
+                <select
+                  value={indRuleProfile}
+                  onChange={(e) => setIndRuleProfile(e.target.value as ShiftProfileId)}
+                  className="px-2.5 py-2 rounded-lg border border-industrial-border bg-white text-xs font-medium outline-none"
+                >
+                  <option value="group">Horário Padrão do Grupo</option>
+                  <option value="iolanda">Horário 07:00–17:00 (Int. 12–13h)</option>
+                  <option value="bruno">Horário 07:00–17:00 (Int. 11–12h)</option>
+                </select>
+
+                <div className="flex items-center gap-1 flex-wrap">
+                  {ALL_OFF_DAYS.map((day) => {
                     const active = indRuleDays.includes(day);
                     return (
                       <button

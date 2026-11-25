@@ -1,8 +1,9 @@
 // Motor CSP (Constraint Satisfaction Problem) e Auditoria CLT / Portaria MTE nº 2.041/2026
 // para geração automática de escalas 5x2 (Folga Útil Semanal + Domingo).
 
-export type Weekday = 1 | 2 | 3 | 4 | 5; // 1=Seg, 2=Ter, 3=Qua, 4=Qui, 5=Sex
+export type Weekday = 1 | 2 | 3 | 4 | 5 | 6; // 1=Seg, 2=Ter, 3=Qua, 4=Qui, 5=Sex, 6=Sáb
 export type GroupId = 'A' | 'B';
+export type ShiftProfileId = 'group' | 'iolanda' | 'bruno';
 
 export const WEEKDAY_LABELS: Record<Weekday, string> = {
   1: 'Segunda',
@@ -10,6 +11,7 @@ export const WEEKDAY_LABELS: Record<Weekday, string> = {
   3: 'Quarta',
   4: 'Quinta',
   5: 'Sexta',
+  6: 'Sábado',
 };
 
 export const WEEKDAY_SHORT: Record<Weekday, string> = {
@@ -18,9 +20,11 @@ export const WEEKDAY_SHORT: Record<Weekday, string> = {
   3: 'Qua',
   4: 'Qui',
   5: 'Sex',
+  6: 'Sáb',
 };
 
 export const ALL_WEEKDAYS: Weekday[] = [1, 2, 3, 4, 5];
+export const ALL_OFF_DAYS: Weekday[] = [1, 2, 3, 4, 5, 6];
 
 export interface ScheduleEmployeeConfig {
   id: string;
@@ -28,6 +32,7 @@ export interface ScheduleEmployeeConfig {
   group: GroupId;
   allowedDays: Weekday[];
   alternateDays: boolean; // Ex: Cris alterna entre Terça e Sexta entre semanas
+  shiftProfile?: ShiftProfileId; // Permite escolher livremente o padrão de horário para qualquer colaborador
   note?: string;
 }
 
@@ -91,14 +96,14 @@ export const SHIFT_42H_GROUP_A: ShiftTemplate = {
   weeklyHours: 42,
 };
 
-// 42h semanais a partir de 16/12/2026 — Grupo B (Entrada 07:45)
+// 42h semanais a partir de 16/12/2026 — Grupo B (Entrada 07:45 Seg-Sex; Sábado todo mundo entra às 07:00!)
 export const SHIFT_42H_GROUP_B: ShiftTemplate = {
   workStart: '07:45',
   breakStart: '12:45',
   breakEnd: '13:45',
   workEnd: '18:00', // 9h15/dia × 4 dias = 37h00
-  saturdayStart: '07:45',
-  saturdayEnd: '12:45', // 5h00 no sábado -> 37h + 5h = 42h00
+  saturdayStart: '07:00',
+  saturdayEnd: '12:00', // 5h00 no sábado (entrada 7h para todos) -> 37h + 5h = 42h00
   dailyHoursLabel: '09h15min',
   saturdayHoursLabel: '05h00min',
   weeklyHours: 42,
@@ -169,7 +174,8 @@ export const DEFAULT_SCHEDULE_EMPLOYEES: ScheduleEmployeeConfig[] = [
     group: 'A',
     allowedDays: [2],
     alternateDays: false,
-    note: 'Folga fixa na Terça-feira',
+    shiftProfile: 'bruno',
+    note: 'Folga fixa na Terça-feira (Horário Bruno: 07:00–17:00, int. 11:00–12:00)',
   },
   {
     id: 'iolanda',
@@ -177,7 +183,8 @@ export const DEFAULT_SCHEDULE_EMPLOYEES: ScheduleEmployeeConfig[] = [
     group: 'A',
     allowedDays: [3],
     alternateDays: false,
-    note: 'Folga fixa na Quarta-feira',
+    shiftProfile: 'iolanda',
+    note: 'Folga fixa na Quarta-feira (Horário Iolanda: 07:00–17:00, int. 12:00–13:00)',
   },
   {
     id: 'pricyla',
@@ -562,31 +569,73 @@ export function resolveShiftForWeek(
  * Seleciona o turno específico de cada colaborador na semana:
  * - Antes de 16/12/2026 (44h): Padrão normal de 44h em uso
  * - A partir de 16/12/2026 (42h):
- *   - Iolanda: 07:00–17:00 (int. 12:00–13:00), Sáb 07:00–13:00 (42h)
- *   - Bruno: 07:00–17:00 (int. 11:00–12:00), Sáb 07:00–13:00 (42h)
- *   - Grupo A: 07:00–17:15 (int. 12:00–13:00), Sáb 07:00–12:00 (42h)
- *   - Grupo B: 07:45–18:00 (int. 12:45–13:45), Sáb 07:45–12:45 (42h)
+ *   - Sábado: todo mundo entra às 07:00 (Grupo A/B 07:00–12:00; perfil Iolanda/Bruno 07:00–13:00)
+ *   - Se o colaborador folgar no Sábado (offDay === 6), trabalha Seg–Sex (5 dias) com carga de 8h24/dia = 42h00
+ *   - Caso contrário (folga Seg–Sex), trabalha 4 dias úteis + Sábado = 42h00
  */
 export function resolveShiftForEmployeeInWeek(
   emp: ScheduleEmployeeConfig,
   legalMaxHours: number,
   customShift: ShiftTemplate,
-  policy: MtePolicyConfig
+  policy: MtePolicyConfig,
+  offDay?: Weekday
 ): ShiftTemplate {
   if (policy.phaseMode !== 'auto') {
     return customShift;
   }
   if (legalMaxHours <= 40) return SHIFT_40H;
-  if (legalMaxHours >= 44) return SHIFT_44H;
+  if (legalMaxHours >= 44) {
+    if (offDay === 6) {
+      return {
+        ...SHIFT_44H,
+        workStart: emp.group === 'B' ? '07:45' : '08:00',
+        breakStart: emp.group === 'B' ? '12:00' : '12:00',
+        breakEnd: emp.group === 'B' ? '13:12' : '13:12',
+        workEnd: emp.group === 'B' ? '17:45' : '18:00',
+        dailyHoursLabel: '08h48min',
+      };
+    }
+    return SHIFT_44H;
+  }
 
-  // Vigência 42h (a partir de 16/12/2026)
-  const normalizedName = emp.name.trim().toLowerCase();
-  if (emp.id === 'iolanda' || normalizedName === 'iolanda') {
-    return SHIFT_42H_IOLANDA;
+  // Se o colaborador folga no Sábado na semana de 42h: trabalha 5 dias úteis × 8h24min = 42h00
+  if (offDay === 6) {
+    return emp.group === 'B'
+      ? {
+          workStart: '07:45',
+          breakStart: '12:45',
+          breakEnd: '13:45',
+          workEnd: '17:09',
+          saturdayStart: '07:00',
+          saturdayEnd: '12:00',
+          dailyHoursLabel: '08h24min',
+          saturdayHoursLabel: '00h00min',
+          weeklyHours: 42,
+        }
+      : {
+          workStart: '07:00',
+          breakStart: '12:00',
+          breakEnd: '13:00',
+          workEnd: '16:24',
+          saturdayStart: '07:00',
+          saturdayEnd: '12:00',
+          dailyHoursLabel: '08h24min',
+          saturdayHoursLabel: '00h00min',
+          weeklyHours: 42,
+        };
   }
-  if (emp.id === 'bruno' || normalizedName === 'bruno') {
-    return SHIFT_42H_BRUNO;
-  }
+
+  // Vigência 42h (a partir de 16/12/2026) — perfil configurável por colaborador
+  const profile =
+    emp.shiftProfile ||
+    (emp.id === 'iolanda' || emp.name.trim().toLowerCase() === 'iolanda'
+      ? 'iolanda'
+      : emp.id === 'bruno' || emp.name.trim().toLowerCase() === 'bruno'
+      ? 'bruno'
+      : 'group');
+
+  if (profile === 'iolanda') return SHIFT_42H_IOLANDA;
+  if (profile === 'bruno') return SHIFT_42H_BRUNO;
   return emp.group === 'B' ? SHIFT_42H_GROUP_B : SHIFT_42H_GROUP_A;
 }
 
@@ -607,7 +656,7 @@ export function generateAndAuditSchedule(
   const historyCounts: Record<string, Record<Weekday, number>> = {};
 
   for (const emp of employees) {
-    historyCounts[emp.id] = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+    historyCounts[emp.id] = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 };
   }
 
   let totalBacktracks = 0;
@@ -664,7 +713,7 @@ export function generateAndAuditSchedule(
   };
 }
 
-function calculateShiftMetrics(shift: ShiftTemplate) {
+function calculateShiftMetrics(shift: ShiftTemplate, saturdayOff = false) {
   const startMin = parseMinutes(shift.workStart);
   const breakStartMin = parseMinutes(shift.breakStart);
   const breakEndMin = parseMinutes(shift.breakEnd);
@@ -674,10 +723,10 @@ function calculateShiftMetrics(shift: ShiftTemplate) {
 
   const satStartMin = parseMinutes(shift.saturdayStart || shift.workStart);
   const satEndMin = parseMinutes(shift.saturdayEnd || shift.workEnd);
-  const satWorkMinutes = Math.max(0, satEndMin - satStartMin);
+  const satWorkMinutes = saturdayOff ? 0 : Math.max(0, satEndMin - satStartMin);
 
-  // Escala 5x2: 4 dias úteis trabalhados (1 folga útil) + Sábado (ou 5 dias se sábado = 0)
-  const weeklyMinutes = satWorkMinutes > 0 ? dailyWorkMinutes * 4 + satWorkMinutes : dailyWorkMinutes * 5;
+  // Escala 5x2: se folga no Sábado -> 5 dias úteis; se folga em dia útil -> 4 dias úteis + Sábado
+  const weeklyMinutes = saturdayOff || satWorkMinutes === 0 ? dailyWorkMinutes * 5 : dailyWorkMinutes * 4 + satWorkMinutes;
   const interjornadaMinutes = 24 * 60 - (endMin - startMin);
   return { breakDuration, dailyWorkMinutes, satWorkMinutes, weeklyMinutes, interjornadaMinutes };
 }
@@ -703,13 +752,15 @@ function runScheduleAudit(
     let maxWeeklySeen = 0;
 
     for (const emp of employees) {
+      const offDay = assign.offDayByEmployee[emp.id];
       const empShift = resolveShiftForEmployeeInWeek(
         emp,
         assign.legalMaxWeeklyHours,
         assign.appliedShift,
-        policy
+        policy,
+        offDay
       );
-      const m = calculateShiftMetrics(empShift);
+      const m = calculateShiftMetrics(empShift, offDay === 6);
       const weeklyHoursActual = m.weeklyMinutes / 60;
       maxWeeklySeen = Math.max(maxWeeklySeen, weeklyHoursActual);
 
@@ -809,7 +860,7 @@ function runScheduleAudit(
   const activeRules = rules.filter((r) => r.enabled);
   for (const wAssign of assignments) {
     for (const rule of activeRules) {
-      for (const day of ALL_WEEKDAYS) {
+      for (const day of ALL_OFF_DAYS) {
         const count = rule.employeeIds.filter((id) => wAssign.offDayByEmployee[id] === day).length;
         if (count > rule.maxOffSameDay) {
           collectiveViolations++;
@@ -836,7 +887,7 @@ function runScheduleAudit(
   const totalB = employees.filter((e) => e.group === 'B').length;
 
   for (const wAssign of assignments) {
-    for (const day of ALL_WEEKDAYS) {
+    for (const day of ALL_OFF_DAYS) {
       const offA = employees.filter((e) => e.group === 'A' && wAssign.offDayByEmployee[e.id] === day).length;
       const offB = employees.filter((e) => e.group === 'B' && wAssign.offDayByEmployee[e.id] === day).length;
       minPresentA = Math.min(minPresentA, totalA - offA);
