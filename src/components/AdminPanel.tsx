@@ -14,6 +14,7 @@ import { AdminAbsences } from './AdminAbsences';
 import { EmployeeReports } from './EmployeeReports';
 import { AdminTimeBank } from './AdminTimeBank';
 import { AdminUsersTab } from './AdminUsersTab';
+import { AdminSchedule5x2 } from './AdminSchedule5x2';
 import { AdminUser } from '../types';
 
 // Fix Leaflet default marker icon issue in React
@@ -116,7 +117,7 @@ const MapFeatures = ({ setPosition }: { setPosition: (p: [number, number]) => vo
 };
 
 export const AdminPanel = ({ loggedAdmin, onLogout }: { loggedAdmin: AdminUser, onLogout: () => void }) => {
-  const [activeTab, setActiveTab] = useState<'employees' | 'companies' | 'reports' | 'holidays' | 'absences' | 'timebank' | 'admins'>(loggedAdmin.role === 'convencional' ? 'reports' : 'employees');
+  const [activeTab, setActiveTab] = useState<'employees' | 'companies' | 'reports' | 'holidays' | 'absences' | 'timebank' | 'schedule5x2' | 'admins'>(loggedAdmin.role === 'convencional' ? 'reports' : 'employees');
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [allCompanies, setAllCompanies] = useState<Company[]>([]);
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
@@ -506,9 +507,15 @@ export const AdminPanel = ({ loggedAdmin, onLogout }: { loggedAdmin: AdminUser, 
                 </button>
                 <button 
                   onClick={() => setActiveTab('timebank')} 
-                  className={`px-4 py-1.5 text-sm font-semibold rounded-md transition-all ${activeTab === 'timebank' ? 'bg-white shadow-sm text-cyber-emerald' : 'text-industrial-muted hover:text-industrial-text'}`}
+                  className={`px-4 py-1.5 text-sm font-semibold rounded-md transition-all whitespace-nowrap ${activeTab === 'timebank' ? 'bg-white shadow-sm text-cyber-emerald' : 'text-industrial-muted hover:text-industrial-text'}`}
                 >
                   Banco de Horas
+                </button>
+                <button 
+                  onClick={() => setActiveTab('schedule5x2')} 
+                  className={`px-4 py-1.5 text-sm font-semibold rounded-md transition-all whitespace-nowrap ${activeTab === 'schedule5x2' ? 'bg-white shadow-sm text-cyber-emerald' : 'text-industrial-muted hover:text-industrial-text'}`}
+                >
+                  Escala 5x2
                 </button>
                 {loggedAdmin.role === 'total' && (
                   <button 
@@ -532,6 +539,7 @@ export const AdminPanel = ({ loggedAdmin, onLogout }: { loggedAdmin: AdminUser, 
         {activeTab === 'holidays' && <AdminHolidays />}
         {activeTab === 'absences' && <AdminAbsences loggedAdmin={loggedAdmin} />}
         {activeTab === 'timebank' && <AdminTimeBank loggedAdmin={loggedAdmin} />}
+        {activeTab === 'schedule5x2' && <AdminSchedule5x2 />}
         {activeTab === 'admins' && <AdminUsersTab loggedAdmin={loggedAdmin} />}
         {activeTab === 'employees' && loggedAdmin.role !== 'convencional' && (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
