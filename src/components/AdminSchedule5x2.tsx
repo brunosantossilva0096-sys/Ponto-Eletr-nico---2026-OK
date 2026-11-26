@@ -176,6 +176,8 @@ export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedA
   const [subTab, setSubTab] = useState<'schedule' | 'conditions' | 'audit'>('schedule');
   const [selectedYear, setSelectedYear] = useState<number>(now.getFullYear());
   const [selectedMonth, setSelectedMonth] = useState<number>(now.getMonth()); // 0..11
+  const [startFromDate, setStartFromDate] = useState<string>(''); // YYYY-MM-DD (vazio = mês inteiro)
+  const [showCalendar, setShowCalendar] = useState<boolean>(true);
 
   const [employees, setEmployees] = useState<ScheduleEmployeeConfig[]>(initial.employees);
   const [rules, setRules] = useState<CollectiveRule[]>(initial.rules);
@@ -235,6 +237,59 @@ export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedA
 
   const allAuditsPassed =
     solverResult.success && solverResult.audits.every((a) => a.passed);
+
+  const handleSelectStartDate = (isoDate: string) => {
+    setStartFromDate(isoDate);
+    if (isoDate && /^\d{4}-\d{2}-\d{2}$/.test(isoDate)) {
+      const [y, m] = isoDate.split('-').map(Number);
+      if (y && m) {
+        setSelectedYear(y);
+        setSelectedMonth(m - 1);
+      }
+    }
+  };
+
+  // Mapa rápido de data YYYY-MM-DD -> quantidade de folgas / DSR no dia
+  const dayOffCountMap = useMemo(() => {
+    const map: Record<string, { offCount: number; isSunday: boolean }> = {};
+    if (!solverResult.success) return map;
+    solverResult.weeks.forEach((week, wIdx) => {
+      const assign = solverResult.assignments[wIdx];
+      for (const d of ALL_OFF_DAYS) {
+        const iso = week.datesByDow[d];
+        if (!iso) continue;
+        const offCount = employees.filter((e) => assign.offDayByEmployee[e.id] === d).length;
+        map[iso] = { offCount, isSunday: false };
+      }
+      if (week.datesByDow[0]) {
+        map[week.datesByDow[0]] = { offCount: employees.length, isSunday: true };
+      }
+    });
+    return map;
+  }, [solverResult, employees]);
+
+  // Grade do calendário mensal (Seg..Dom)
+  const calendarCells = useMemo(() => {
+    const first = new Date(selectedYear, selectedMonth, 1);
+    const last = new Date(selectedYear, selectedMonth + 1, 0);
+    const startDow = first.getDay(); // 0=Dom..6=Sab
+    const leadingEmpty = startDow === 0 ? 6 : startDow - 1; // Segunda-feira = 0
+    const cells: Array<{ day: number | null; iso: string | null; dow: number }> = [];
+    for (let i = 0; i < leadingEmpty; i++) {
+      cells.push({ day: null, iso: null, dow: i });
+    }
+    for (let day = 1; day <= last.getDate(); day++) {
+      const d = new Date(selectedYear, selectedMonth, day);
+      const iso = `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      cells.push({ day, iso, dow: d.getDay() });
+    }
+    return cells;
+  }, [selectedYear, selectedMonth]);
+
+  const todayIso = useMemo(() => {
+    const t = new Date();
+    return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
+  }, []);
 
   const toggleAllowedDay = (empId: string, day: Weekday) => {
     setEmployees((prev) =>
@@ -606,6 +661,30 @@ export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedA
                   className="w-24 px-3 py-2 rounded-lg border border-industrial-border text-sm font-medium bg-industrial-bg outline-none focus:border-cyber-emerald"
                 />
               </div>
+              <div>
+                <label className="block text-[11px] font-semibold text-industrial-muted mb-1">
+                  A partir do dia
+                </label>
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="date"
+                    value={startFromDate}
+                    onChange={(e) => handleSelectStartDate(e.target.value)}
+                    className="px-3 py-2 rounded-lg border border-industrial-border text-sm font-medium bg-industrial-bg outline-none focus:border-cyber-emerald"
+                    title="Mostrar escala a partir desta data"
+                  />
+                  {startFromDate && (
+                    <button
+                      type="button"
+                      onClick={() => setStartFromDate('')}
+                      className="px-2.5 py-2 rounded-lg border border-industrial-border text-xs font-semibold text-industrial-muted hover:text-industrial-text hover:bg-industrial-bg"
+                      title="Mostrar mês completo"
+                    >
+                      Mês todo
+                    </button>
+                  )}
+                </div>
+              </div>
               <div className="px-3 py-2 rounded-lg bg-industrial-bg border border-industrial-border text-xs">
                 <span className="text-industrial-muted">Portaria MTE nº 2.041/2026: </span>
                 <span className="font-bold text-industrial-text">
@@ -617,6 +696,17 @@ export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedA
             </div>
 
             <div className="flex items-center gap-2 flex-wrap">
+              <button
+                type="button"
+                onClick={() => setShowCalendar((v) => !v)}
+                className={`px-3.5 py-2 rounded-xl border text-xs font-semibold transition-colors flex items-center gap-1.5 ${
+                  showCalendar
+                    ? 'border-cyber-emerald bg-emerald-50 text-emerald-700'
+                    : 'border-industrial-border hover:border-cyber-emerald hover:text-cyber-emerald'
+                }`}
+              >
+                <Calendar size={14} /> {showCalendar ? 'Ocultar Calendário' : 'Calendário'}
+              </button>
               <button
                 onClick={handleExportCSV}
                 disabled={!solverResult.success}
@@ -634,6 +724,118 @@ export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedA
             </div>
           </div>
 
+          {/* Calendário interativo para escolher a partir de qual dia exibir a escala */}
+          {showCalendar && (
+            <div className="bg-white p-4 rounded-2xl shadow-sm border border-industrial-border space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <Calendar size={16} className="text-cyber-emerald" />
+                  <h3 className="font-bold text-sm text-industrial-text">
+                    Calendário — {MONTH_NAMES[selectedMonth]} / {selectedYear}
+                  </h3>
+                  {startFromDate ? (
+                    <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                      Exibindo escala a partir de {startFromDate.split('-').reverse().join('/')}
+                    </span>
+                  ) : (
+                    <span className="text-[11px] text-industrial-muted">
+                      Clique em um dia para visualizar a escala a partir daquela data
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleSelectStartDate(todayIso)}
+                    className="px-2.5 py-1 rounded-lg border border-industrial-border text-[11px] font-semibold hover:border-cyber-emerald hover:text-cyber-emerald"
+                  >
+                    Hoje
+                  </button>
+                  {startFromDate && (
+                    <button
+                      type="button"
+                      onClick={() => setStartFromDate('')}
+                      className="px-2.5 py-1 rounded-lg bg-slate-100 text-[11px] font-semibold text-industrial-text hover:bg-slate-200"
+                    >
+                      Limpar filtro
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-7 gap-1.5 text-center">
+                {['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'].map((d) => (
+                  <div
+                    key={d}
+                    className={`text-[11px] font-bold py-1 ${
+                      d === 'Dom' ? 'text-amber-700' : 'text-industrial-muted'
+                    }`}
+                  >
+                    {d}
+                  </div>
+                ))}
+                {calendarCells.map((cell, idx) => {
+                  if (!cell.day || !cell.iso) {
+                    return <div key={`empty-${idx}`} className="h-12 rounded-lg bg-slate-50/50" />;
+                  }
+                  const isSelected = startFromDate === cell.iso;
+                  const isAfterStart = Boolean(startFromDate && cell.iso > startFromDate);
+                  const isBeforeStart = Boolean(startFromDate && cell.iso < startFromDate);
+                  const isToday = cell.iso === todayIso;
+                  const info = dayOffCountMap[cell.iso];
+
+                  return (
+                    <button
+                      key={cell.iso}
+                      type="button"
+                      onClick={() =>
+                        setStartFromDate(isSelected ? '' : cell.iso!)
+                      }
+                      className={`h-12 rounded-lg border px-1.5 py-1 flex flex-col items-center justify-between transition-all text-xs ${
+                        isSelected
+                          ? 'bg-cyber-emerald text-white border-cyber-emerald font-bold shadow-sm ring-2 ring-emerald-200'
+                          : isAfterStart
+                          ? 'bg-emerald-50/70 border-emerald-200 text-industrial-text hover:border-cyber-emerald'
+                          : isBeforeStart
+                          ? 'bg-slate-50 border-industrial-border/60 text-industrial-muted opacity-45 hover:opacity-80'
+                          : cell.dow === 0
+                          ? 'bg-amber-50/50 border-amber-200/70 text-amber-800 hover:border-cyber-emerald'
+                          : 'bg-white border-industrial-border text-industrial-text hover:border-cyber-emerald'
+                      }`}
+                    >
+                      <div className="w-full flex items-center justify-between">
+                        <span className="font-bold text-[12px]">{cell.day}</span>
+                        {isToday && (
+                          <span
+                            className={`w-1.5 h-1.5 rounded-full ${
+                              isSelected ? 'bg-white' : 'bg-cyber-emerald'
+                            }`}
+                            title="Hoje"
+                          />
+                        )}
+                      </div>
+                      {info && (
+                        <span
+                          className={`text-[9px] font-semibold truncate max-w-full ${
+                            isSelected
+                              ? 'text-white/95'
+                              : info.isSunday
+                              ? 'text-amber-700'
+                              : 'text-emerald-700'
+                          }`}
+                        >
+                          {info.isSunday
+                            ? 'DSR'
+                            : `${info.offCount} folga${info.offCount === 1 ? '' : 's'}`}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {!solverResult.success ? (
             <div className="bg-red-50 border border-red-200 text-red-800 p-6 rounded-2xl flex items-start gap-3">
               <AlertTriangle className="shrink-0 mt-0.5" size={20} />
@@ -650,10 +852,15 @@ export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedA
             </div>
           ) : (
             <div className="space-y-6">
-              {solverResult.weeks.map((week, wIdx) => {
+              {solverResult.weeks
+                .map((week, wIdx) => ({ week, wIdx }))
+                .filter(({ week }) => !startFromDate || (week.datesByDow[0] || '') >= startFromDate)
+                .map(({ week, wIdx }) => {
                 const assign = solverResult.assignments[wIdx];
                 const groupACount = employees.filter((e) => e.group === 'A').length;
                 const groupBCount = employees.filter((e) => e.group === 'B').length;
+                const isDayBeforeStart = (iso?: string) => Boolean(startFromDate && iso && iso < startFromDate);
+                const isSelectedStartDay = (iso?: string) => Boolean(startFromDate && iso && iso === startFromDate);
 
                 return (
                   <div
@@ -693,21 +900,49 @@ export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedA
                           <tr className="border-b border-industrial-border bg-slate-50/70 text-industrial-muted">
                             <th className="text-left py-2.5 px-4 font-semibold">Colaborador</th>
                             <th className="text-center py-2.5 px-2 font-semibold">Grupo</th>
-                            {ALL_WEEKDAYS.map((d) => (
-                              <th key={d} className="text-center py-2.5 px-2 font-semibold">
-                                <div>{WEEKDAY_SHORT[d]}</div>
-                                <div className="text-[10px] font-normal">
-                                  {week.datesByDow[d]?.slice(8, 10)}/{week.datesByDow[d]?.slice(5, 7)}
-                                </div>
-                              </th>
-                            ))}
-                            <th className="text-center py-2.5 px-2 font-semibold">
+                            {ALL_WEEKDAYS.map((d) => {
+                              const iso = week.datesByDow[d];
+                              return (
+                                <th
+                                  key={d}
+                                  className={`text-center py-2.5 px-2 font-semibold ${
+                                    isSelectedStartDay(iso)
+                                      ? 'bg-emerald-100/80 text-emerald-900'
+                                      : isDayBeforeStart(iso)
+                                      ? 'opacity-35'
+                                      : ''
+                                  }`}
+                                >
+                                  <div>{WEEKDAY_SHORT[d]}</div>
+                                  <div className="text-[10px] font-normal">
+                                    {iso?.slice(8, 10)}/{iso?.slice(5, 7)}
+                                  </div>
+                                </th>
+                              );
+                            })}
+                            <th
+                              className={`text-center py-2.5 px-2 font-semibold ${
+                                isSelectedStartDay(week.datesByDow[6])
+                                  ? 'bg-emerald-100/80 text-emerald-900'
+                                  : isDayBeforeStart(week.datesByDow[6])
+                                  ? 'opacity-35'
+                                  : ''
+                              }`}
+                            >
                               <div>Sáb</div>
                               <div className="text-[10px] font-normal">
                                 {week.datesByDow[6]?.slice(8, 10)}/{week.datesByDow[6]?.slice(5, 7)}
                               </div>
                             </th>
-                            <th className="text-center py-2.5 px-2 font-semibold">
+                            <th
+                              className={`text-center py-2.5 px-2 font-semibold ${
+                                isSelectedStartDay(week.datesByDow[0])
+                                  ? 'bg-emerald-100/80 text-emerald-900'
+                                  : isDayBeforeStart(week.datesByDow[0])
+                                  ? 'opacity-35'
+                                  : ''
+                              }`}
+                            >
                               <div>Dom</div>
                               <div className="text-[10px] font-normal">
                                 {week.datesByDow[0]?.slice(8, 10)}/{week.datesByDow[0]?.slice(5, 7)}
@@ -748,8 +983,18 @@ export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedA
                                 </td>
                                 {ALL_WEEKDAYS.map((d) => {
                                   const isOff = offDay === d;
+                                  const iso = week.datesByDow[d];
                                   return (
-                                    <td key={d} className="py-2 px-1.5 text-center">
+                                    <td
+                                      key={d}
+                                      className={`py-2 px-1.5 text-center ${
+                                        isSelectedStartDay(iso)
+                                          ? 'bg-emerald-50/70'
+                                          : isDayBeforeStart(iso)
+                                          ? 'opacity-35'
+                                          : ''
+                                      }`}
+                                    >
                                       {isOff ? (
                                         <span className="inline-block px-2.5 py-1 rounded-lg bg-emerald-100 text-emerald-800 font-bold text-[11px] border border-emerald-300">
                                           FOLGA
@@ -765,7 +1010,15 @@ export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedA
                                     </td>
                                   );
                                 })}
-                                <td className="py-2 px-1.5 text-center">
+                                <td
+                                  className={`py-2 px-1.5 text-center ${
+                                    isSelectedStartDay(week.datesByDow[6])
+                                      ? 'bg-emerald-50/70'
+                                      : isDayBeforeStart(week.datesByDow[6])
+                                      ? 'opacity-35'
+                                      : ''
+                                  }`}
+                                >
                                   {offDay === 6 ? (
                                     <span className="inline-block px-2.5 py-1 rounded-lg bg-emerald-100 text-emerald-800 font-bold text-[11px] border border-emerald-300">
                                       FOLGA
@@ -776,7 +1029,15 @@ export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedA
                                     </span>
                                   )}
                                 </td>
-                                <td className="py-2 px-1.5 text-center">
+                                <td
+                                  className={`py-2 px-1.5 text-center ${
+                                    isSelectedStartDay(week.datesByDow[0])
+                                      ? 'bg-emerald-50/70'
+                                      : isDayBeforeStart(week.datesByDow[0])
+                                      ? 'opacity-35'
+                                      : ''
+                                  }`}
+                                >
                                   <span className="inline-block px-2.5 py-1 rounded-lg bg-amber-50 text-amber-700 font-bold text-[11px] border border-amber-200">
                                     DSR
                                   </span>
