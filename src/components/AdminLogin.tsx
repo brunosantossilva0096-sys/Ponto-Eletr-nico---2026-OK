@@ -16,7 +16,8 @@ export const AdminLogin = ({ onLogin, onBack }: AdminLoginProps) => {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!username || !password) {
+    const cleanUser = username.trim();
+    if (!cleanUser || !password) {
       setError('Preencha usuário e senha');
       return;
     }
@@ -25,37 +26,24 @@ export const AdminLogin = ({ onLogin, onBack }: AdminLoginProps) => {
     setError('');
 
     try {
-      // Usamos get para testar o fallback original
-      if (username === 'admin' && password === 'admin') {
-        // Tenta buscar no banco primeiro
-        const { data, error: dbError } = await supabase
-          .from('admin_users')
-          .select('*, companies(*)')
-          .eq('username', username)
-          .eq('password', password)
-          .maybeSingle();
-
-        if (dbError && dbError.code === '42P01') {
-          // Tabela não existe, fallback para o admin master local
-          onLogin({
-            id: 'local-admin',
-            username: 'admin',
-            role: 'total'
-          });
-          setLoading(false);
-          return;
-        }
-      }
-
       const { data, error: dbError } = await supabase
         .from('admin_users')
         .select('*, companies(*)')
-        .eq('username', username)
+        .eq('username', cleanUser)
         .eq('password', password)
         .maybeSingle();
 
       if (dbError) {
         if (dbError.code === '42P01') {
+          if (cleanUser === 'admin' && password === 'admin') {
+            onLogin({
+              id: 'local-admin',
+              username: 'admin',
+              role: 'total',
+            });
+            setLoading(false);
+            return;
+          }
           setError('Tabela admin_users não existe. Execute o script SQL no Supabase.');
         } else {
           setError('Erro de conexão com o banco de dados.');
@@ -65,7 +53,7 @@ export const AdminLogin = ({ onLogin, onBack }: AdminLoginProps) => {
       } else {
         setError('Usuário ou senha incorretos.');
       }
-    } catch (err) {
+    } catch {
       setError('Erro ao tentar logar.');
     }
 
@@ -75,7 +63,11 @@ export const AdminLogin = ({ onLogin, onBack }: AdminLoginProps) => {
   return (
     <div className="min-h-screen bg-industrial-bg flex flex-col items-center justify-center p-4">
       <div className="w-full max-w-md bg-white rounded-3xl shadow-xl overflow-hidden border border-industrial-border animate-fade-in p-8">
-        <button onClick={onBack} className="text-industrial-muted hover:text-industrial-text flex items-center gap-2 text-sm font-semibold mb-6">
+        <button
+          type="button"
+          onClick={onBack}
+          className="text-industrial-muted hover:text-industrial-text flex items-center gap-2 text-sm font-semibold mb-6"
+        >
           <ArrowLeft size={16} /> Voltar
         </button>
 
@@ -95,7 +87,9 @@ export const AdminLogin = ({ onLogin, onBack }: AdminLoginProps) => {
 
         <form onSubmit={handleLogin} className="space-y-5">
           <div>
-            <label className="block text-xs font-semibold text-industrial-muted mb-2 uppercase tracking-wider">Usuário</label>
+            <label className="block text-xs font-semibold text-industrial-muted mb-2 uppercase tracking-wider">
+              Usuário
+            </label>
             <div className="relative">
               <User className="absolute left-3 top-3 text-industrial-muted" size={18} />
               <input
@@ -109,7 +103,9 @@ export const AdminLogin = ({ onLogin, onBack }: AdminLoginProps) => {
             </div>
           </div>
           <div>
-            <label className="block text-xs font-semibold text-industrial-muted mb-2 uppercase tracking-wider">Senha</label>
+            <label className="block text-xs font-semibold text-industrial-muted mb-2 uppercase tracking-wider">
+              Senha
+            </label>
             <div className="relative">
               <Lock className="absolute left-3 top-3 text-industrial-muted" size={18} />
               <input

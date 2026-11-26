@@ -1,7 +1,27 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabaseClient';
 import { Employee, AdminUser, Holiday } from '../types';
-import { Wand2, X, Calendar, AlertTriangle, RefreshCw, Save, ShieldAlert, Sparkles, ChevronDown, ChevronUp, CheckCircle2, Clock } from 'lucide-react';
+import {
+  Wand2,
+  X,
+  Calendar,
+  RefreshCw,
+  Save,
+  ShieldAlert,
+  Sparkles,
+  ChevronDown,
+  ChevronUp,
+  CheckCircle2,
+  Clock,
+} from 'lucide-react';
+import {
+  buildLocalTimestampIso,
+  getFirstDayOfMonthStr,
+  getLocalDayBoundsIso,
+  toLocalDateStr,
+  toLocalTimeStr,
+} from '../utils/dateUtils';
+import { isEmployeeInactive, loadCompanyRules, resolveEmployeeDayFrom5x2 } from '../utils/companyRules';
 
 interface AutoPunchItem {
   type: string;
@@ -45,17 +65,92 @@ interface EmployeeDayScheduleInfo {
   workEnd: string;
 }
 
-const DOW_NAMES = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'];
+const DOW_NAMES = [
+  'Domingo',
+  'Segunda-feira',
+  'Terça-feira',
+  'Quarta-feira',
+  'Quinta-feira',
+  'Sexta-feira',
+  'Sábado',
+];
 
-// Helper para ler a escala base exata cadastrada no perfil do funcionário para o dia da semana
-const getEmployeeDaySchedule = (emp: Employee, dow: number): EmployeeDayScheduleInfo => {
+function buildBasePunchesFromTimes(ws: string, bs: string, be: string, we: string): { type: string; baseTime: string }[] {
+  const basePunches: { type: string; baseTime: string }[] = [];
+  if (ws && bs && be && we) {
+    basePunches.push(
+      { type: 'Entrada Manhã', baseTime: ws },
+      { type: 'Saída Manhã', baseTime: bs },
+      { type: 'Entrada Tarde', baseTime: be },
+      { type: 'Saída Tarde', baseTime: we }
+    );
+  } else if (ws && bs && !be && !we) {
+    basePunches.push(
+      { type: 'Entrada Manhã', baseTime: ws },
+      { type: 'Saída Manhã', baseTime: bs }
+    );
+  } else if (ws && we && !bs && !be) {
+    basePunches.push(
+      { type: 'Entrada Manhã', baseTime: ws },
+      { type: 'Saída Tarde', baseTime: we }
+    );
+  } else if (ws && (we || bs || be)) {
+    basePunches.push(
+      { type: 'Entrada Manhã', baseTime: ws },
+      { type: 'Saída Tarde', baseTime: we || bs || be }
+    );
+  } else if (ws) {
+    basePunches.push(
+      { type: 'Entrada Manhã', baseTime: ws },
+      { type: 'Saída Tarde', baseTime: '17:00' }
+    );
+  }
+  return basePunches;
+}
+
+// Resolve a jornada exata do colaborador na data (usando Escala 5x2 se ativada, ou o perfil cadastrado)
+const getEmployeeDaySchedule = (
+  emp: Employee,
+  dateStr: string,
+  dow: number,
+  use5x2: boolean
+): EmployeeDayScheduleInfo => {
+  if (use5x2) {
+    const resolved5x2 = resolveEmployeeDayFrom5x2(emp, dateStr, true);
+    if (resolved5x2 && resolved5x2.foundIn5x2) {
+      if (!resolved5x2.isWorkDay) {
+        // Caso o admin force dia único em uma folga, mantém fallback para batidas se necessário
+        return {
+          isActive: false,
+          basePunches: buildBasePunchesFromTimes('08:00', '12:00', '13:00', '17:00'),
+          workStart: '',
+          breakStart: '',
+          breakEnd: '',
+          workEnd: '',
+        };
+      }
+      return {
+        isActive: true,
+        basePunches: buildBasePunchesFromTimes(
+          resolved5x2.workStart,
+          resolved5x2.breakStart,
+          resolved5x2.breakEnd,
+          resolved5x2.workEnd
+        ),
+        workStart: resolved5x2.workStart,
+        breakStart: resolved5x2.breakStart,
+        breakEnd: resolved5x2.breakEnd,
+        workEnd: resolved5x2.workEnd,
+      };
+    }
+  }
+
   let ws = '';
   let bs = '';
   let be = '';
   let we = '';
   let isActive = true;
 
-  // 1. Escala Personalizada cadastrada para este dia específico da semana (0=Dom .. 6=Sáb)
   if (emp.custom_schedule && emp.custom_schedule[dow]) {
     const sc = emp.custom_schedule[dow];
     isActive = Boolean(sc.active);
@@ -64,7 +159,6 @@ const getEmployeeDaySchedule = (emp: Employee, dow: number): EmployeeDaySchedule
     be = (sc.break_end || '').trim().substring(0, 5);
     we = (sc.work_end || '').trim().substring(0, 5);
   } else {
-    // 2. Escala Padrão do cadastro
     ws = (emp.work_start || '').trim().substring(0, 5);
     bs = (emp.break_start || '').trim().substring(0, 5);
     be = (emp.break_end || '').trim().substring(0, 5);
@@ -72,9 +166,11 @@ const getEmployeeDaySchedule = (emp: Employee, dow: number): EmployeeDaySchedule
     isActive = !emp.work_days || emp.work_days.includes(dow);
   }
 
-  // 3. Fallback: Se os campos padrão estiverem vazios no banco, mas houver custom_schedule
   if (!ws && !we && emp.custom_schedule) {
-    const daySched = emp.custom_schedule[dow] || emp.custom_schedule[1] || Object.values(emp.custom_schedule).find((s: any) => s.active && s.work_start);
+    const daySched =
+      emp.custom_schedule[dow] ||
+      emp.custom_schedule[1] ||
+      Object.values(emp.custom_schedule).find((s: any) => s.active && s.work_start);
     if (daySched) {
       if (emp.custom_schedule[dow]) {
         isActive = Boolean(daySched.active);
@@ -86,89 +182,14 @@ const getEmployeeDaySchedule = (emp: Employee, dow: number): EmployeeDaySchedule
     }
   }
 
-  // Se for dia ativo e não tiver nenhum horário cadastrado, adota 08:00 às 17:00
   if (isActive && !ws) {
     ws = '08:00';
     we = '17:00';
   }
 
-  const basePunches: { type: string; baseTime: string }[] = [];
-
-  if (isActive) {
-    // Caso 1: 4 batidas completas (Entrada, Almoço Saída, Volta Almoço, Fim)
-    if (ws && bs && be && we) {
-      basePunches.push(
-        { type: 'Entrada Manhã', baseTime: ws },
-        { type: 'Saída Manhã', baseTime: bs },
-        { type: 'Entrada Tarde', baseTime: be },
-        { type: 'Saída Tarde', baseTime: we }
-      );
-    }
-    // Caso 2: Turno de meio período (ex: Sábado com work_start 07:00 e break_start 11:00)
-    else if (ws && bs && !be && !we) {
-      basePunches.push(
-        { type: 'Entrada Manhã', baseTime: ws },
-        { type: 'Saída Manhã', baseTime: bs }
-      );
-    }
-    // Caso 3: Turno contínuo sem intervalo (ex: work_start 07:00 e work_end 17:00)
-    else if (ws && we && !bs && !be) {
-      basePunches.push(
-        { type: 'Entrada Manhã', baseTime: ws },
-        { type: 'Saída Tarde', baseTime: we }
-      );
-    }
-    // Caso 4: Qualquer 2 horários registrados
-    else if (ws && (we || bs || be)) {
-      const endTime = we || bs || be;
-      basePunches.push(
-        { type: 'Entrada Manhã', baseTime: ws },
-        { type: 'Saída Tarde', baseTime: endTime }
-      );
-    }
-    // Caso 5: Apenas horário de início
-    else if (ws) {
-      basePunches.push(
-        { type: 'Entrada Manhã', baseTime: ws },
-        { type: 'Saída Tarde', baseTime: '17:00' }
-      );
-    }
-  } else {
-    // Dia marcado como folga na escala, mas que o admin solicitou gerar batida (ex: plantão ou dia avulso)
-    let fallbackWs = '08:00';
-    let fallbackBs = '12:00';
-    let fallbackBe = '13:00';
-    let fallbackWe = '17:00';
-
-    if (emp.custom_schedule) {
-      const firstActive = Object.values(emp.custom_schedule).find((s: any) => s.active && s.work_start);
-      if (firstActive) {
-        fallbackWs = (firstActive.work_start || '').trim().substring(0, 5) || fallbackWs;
-        fallbackBs = (firstActive.break_start || '').trim().substring(0, 5);
-        fallbackBe = (firstActive.break_end || '').trim().substring(0, 5);
-        fallbackWe = (firstActive.work_end || '').trim().substring(0, 5);
-      }
-    } else if (emp.work_start) {
-      fallbackWs = emp.work_start.substring(0, 5);
-      fallbackBs = (emp.break_start || '').substring(0, 5);
-      fallbackBe = (emp.break_end || '').substring(0, 5);
-      fallbackWe = (emp.work_end || '').substring(0, 5);
-    }
-
-    if (fallbackWs && fallbackBs && fallbackBe && fallbackWe) {
-      basePunches.push(
-        { type: 'Entrada Manhã', baseTime: fallbackWs },
-        { type: 'Saída Manhã', baseTime: fallbackBs },
-        { type: 'Entrada Tarde', baseTime: fallbackBe },
-        { type: 'Saída Tarde', baseTime: fallbackWe }
-      );
-    } else if (fallbackWs && (fallbackWe || fallbackBs)) {
-      basePunches.push(
-        { type: 'Entrada Manhã', baseTime: fallbackWs },
-        { type: 'Saída Tarde', baseTime: fallbackWe || fallbackBs }
-      );
-    }
-  }
+  const basePunches = isActive
+    ? buildBasePunchesFromTimes(ws, bs, be, we)
+    : buildBasePunchesFromTimes('08:00', '12:00', '13:00', '17:00');
 
   return {
     isActive,
@@ -176,32 +197,34 @@ const getEmployeeDaySchedule = (emp: Employee, dow: number): EmployeeDaySchedule
     workStart: ws,
     breakStart: bs,
     breakEnd: be,
-    workEnd: we
+    workEnd: we,
   };
 };
 
-// Helper para resumir a escala cadastrada para visualização do usuário
 const getEmployeeScheduleSummary = (emp: Employee): string => {
   if (emp.custom_schedule) {
     const daysWithSched = Object.entries(emp.custom_schedule)
       .filter(([_, s]: any) => s && s.active && s.work_start)
       .map(([dow, s]: any) => {
         const dName = DOW_NAMES[Number(dow)].slice(0, 3);
-        const punches = [s.work_start, s.break_start, s.break_end, s.work_end].filter(Boolean).map((t: string) => t.substring(0, 5));
+        const punches = [s.work_start, s.break_start, s.break_end, s.work_end]
+          .filter(Boolean)
+          .map((t: string) => t.substring(0, 5));
         return `${dName}: ${punches.join(' - ')}`;
       });
     if (daysWithSched.length > 0) {
       return daysWithSched.join(' | ');
     }
   }
-  const std = [emp.work_start, emp.break_start, emp.break_end, emp.work_end].filter(Boolean).map((t: string) => t.substring(0, 5));
+  const std = [emp.work_start, emp.break_start, emp.break_end, emp.work_end]
+    .filter(Boolean)
+    .map((t: string) => t!.substring(0, 5));
   if (std.length > 0) {
     return `Seg a Sex: ${std.join(' - ')}`;
   }
   return 'Horário padrão (08:00 - 12:00 - 13:00 - 17:00)';
 };
 
-// Helpers para detecção e cálculo de batidas faltantes
 const toMinutes = (timeStr: string): number => {
   if (!timeStr) return 0;
   const [h, m] = timeStr.split(':').map(Number);
@@ -294,22 +317,21 @@ export const AdminAutoPunchModal: React.FC<AdminAutoPunchModalProps> = ({
   onClose,
   employees,
   loggedAdmin,
-  onSuccess
+  onSuccess,
 }) => {
   const [mode, setMode] = useState<'single' | 'range'>('range');
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string>('');
-  const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
-  const [startDate, setStartDate] = useState<string>(() => {
-    const d = new Date();
-    d.setDate(1); // 1º dia do mês atual
-    return d.toISOString().split('T')[0];
-  });
-  const [endDate, setEndDate] = useState<string>(new Date().toISOString().split('T')[0]);
-  
-  const [variationRange, setVariationRange] = useState<number>(5); // -5 a +5 min por padrão
+  const [selectedDate, setSelectedDate] = useState<string>(() => toLocalDateStr());
+  const [startDate, setStartDate] = useState<string>(() => getFirstDayOfMonthStr());
+  const [endDate, setEndDate] = useState<string>(() => toLocalDateStr());
+
+  const [variationRange, setVariationRange] = useState<number>(5);
   const [verificationMethod, setVerificationMethod] = useState<string>('Biometria');
   const [skipWeekends, setSkipWeekends] = useState<boolean>(true);
   const [skipHolidays, setSkipHolidays] = useState<boolean>(true);
+  const [useSchedule5x2, setUseSchedule5x2] = useState<boolean>(
+    () => loadCompanyRules(loggedAdmin.company_id || '').useSchedule5x2InReportsAndTimeBank
+  );
   const [existingAction, setExistingAction] = useState<'replace' | 'skip' | 'missing'>('missing');
 
   const [holidays, setHolidays] = useState<Holiday[]>([]);
@@ -320,12 +342,10 @@ export const AdminAutoPunchModal: React.FC<AdminAutoPunchModalProps> = ({
 
   const [isSaving, setIsSaving] = useState<boolean>(false);
 
-  // Apenas role === 'total' pode acessar
   if (!isOpen || loggedAdmin.role !== 'total') return null;
 
-  const selectedEmployee = employees.find(e => e.id === selectedEmployeeId);
+  const selectedEmployee = employees.find((e) => e.id === selectedEmployeeId);
 
-  // Carregar feriados uma vez
   useEffect(() => {
     const fetchHolidays = async () => {
       const { data } = await supabase.from('holidays').select('*');
@@ -334,7 +354,6 @@ export const AdminAutoPunchModal: React.FC<AdminAutoPunchModalProps> = ({
     fetchHolidays();
   }, []);
 
-  // Helper para formatar hora HH:mm somando minutos
   const addMinutesToTimeString = (timeStr: string, minutesToAdd: number): string => {
     const [h, m] = timeStr.split(':').map(Number);
     const date = new Date();
@@ -345,14 +364,13 @@ export const AdminAutoPunchModal: React.FC<AdminAutoPunchModalProps> = ({
     return `${finalH}:${finalM}`;
   };
 
-  // Helper para gerar variação aleatória de minutos
   const getRandomOffset = (range: number): number => {
+    if (range <= 0) return 0;
     const min = -range;
-    const max = range + 2;
+    const max = range;
     return Math.floor(Math.random() * (max - min + 1)) + min;
   };
 
-  // Checar quais datas já têm batidas no período e recuperar logs existentes
   useEffect(() => {
     const checkExistingDates = async () => {
       if (!selectedEmployeeId) {
@@ -364,33 +382,30 @@ export const AdminAutoPunchModal: React.FC<AdminAutoPunchModalProps> = ({
       const queryStart = mode === 'single' ? selectedDate : startDate;
       const queryEnd = mode === 'single' ? selectedDate : endDate;
 
-      if (!queryStart || !queryEnd) {
+      if (!queryStart || !queryEnd || queryStart > queryEnd) {
         setExistingDatesSet(new Set());
         setExistingLogsByDate({});
         return;
       }
 
+      const { startIso, endIso } = getLocalDayBoundsIso(queryStart, queryEnd);
+
       const { data } = await supabase
         .from('time_logs')
         .select('id, timestamp, type')
         .eq('employee_id', selectedEmployeeId)
-        .gte('timestamp', `${queryStart}T00:00:00`)
-        .lte('timestamp', `${queryEnd}T23:59:59`)
+        .gte('timestamp', startIso)
+        .lte('timestamp', endIso)
         .order('timestamp', { ascending: true });
 
       const setOfDates = new Set<string>();
       const logsByDate: Record<string, ExistingPunch[]> = {};
 
       if (data) {
-        data.forEach(l => {
-          const dObj = new Date(l.timestamp);
-          const dateStr = !isNaN(dObj.getTime())
-            ? `${dObj.getFullYear()}-${String(dObj.getMonth() + 1).padStart(2, '0')}-${String(dObj.getDate()).padStart(2, '0')}`
-            : l.timestamp.split('T')[0];
-
-          const timeStr = !isNaN(dObj.getTime())
-            ? `${String(dObj.getHours()).padStart(2, '0')}:${String(dObj.getMinutes()).padStart(2, '0')}`
-            : '';
+        data.forEach((l) => {
+          if (l.type === 'Falta' || l.type === 'Falta Meio Expediente') return;
+          const dateStr = toLocalDateStr(l.timestamp);
+          const timeStr = toLocalTimeStr(l.timestamp);
 
           setOfDates.add(dateStr);
 
@@ -401,7 +416,7 @@ export const AdminAutoPunchModal: React.FC<AdminAutoPunchModalProps> = ({
             id: l.id,
             timestamp: l.timestamp,
             type: l.type || 'Batida',
-            timeStr
+            timeStr,
           });
         });
       }
@@ -413,21 +428,21 @@ export const AdminAutoPunchModal: React.FC<AdminAutoPunchModalProps> = ({
     checkExistingDates();
   }, [selectedEmployeeId, selectedDate, startDate, endDate, mode]);
 
-  // Função para gerar as batidas com variação de minutos
-  const generatePunchesForBaseList = (baseList: { type: string; baseTime: string }[]): AutoPunchItem[] => {
-    return baseList.map(bp => {
+  const generatePunchesForBaseList = (
+    baseList: { type: string; baseTime: string }[]
+  ): AutoPunchItem[] => {
+    return baseList.map((bp) => {
       const diff = getRandomOffset(variationRange);
       const adjusted = addMinutesToTimeString(bp.baseTime, diff);
       return {
         type: bp.type,
         baseTime: bp.baseTime,
         adjustedTime: adjusted,
-        minuteDiff: diff
+        minuteDiff: diff,
       };
     });
   };
 
-  // Calcula a lista de dias a serem processados
   const generateAllDaysPunches = () => {
     if (!selectedEmployee) {
       setDayPunchesList([]);
@@ -442,27 +457,23 @@ export const AdminAutoPunchModal: React.FC<AdminAutoPunchModalProps> = ({
       return;
     }
 
-    const start = new Date(`${startStr}T12:00:00`);
-    const end = new Date(`${endStr}T12:00:00`);
-    const current = new Date(start);
+    const [sy, sm, sd] = startStr.split('-').map(Number);
+    const [ey, em, ed] = endStr.split('-').map(Number);
+    const current = new Date(sy, sm - 1, sd);
+    const end = new Date(ey, em - 1, ed);
 
     const list: DayPunches[] = [];
 
     while (current <= end) {
-      const dateStr = current.getFullYear() + '-' + 
-                      String(current.getMonth() + 1).padStart(2, '0') + '-' + 
-                      String(current.getDate()).padStart(2, '0');
+      const dateStr = toLocalDateStr(current);
       const dow = current.getDay();
 
-      // Verificar se é feriado
-      const isHoliday = holidays.some(h => h.date === dateStr);
-
-      // Obter escala e horários exatos cadastrados no perfil do colaborador para este dia
-      const schedInfo = getEmployeeDaySchedule(selectedEmployee, dow);
+      const isHoliday = holidays.some((h) => h.date === dateStr);
+      const schedInfo = getEmployeeDaySchedule(selectedEmployee, dateStr, dow, useSchedule5x2);
       const isDayOff = !schedInfo.isActive;
 
-      // Se for modo intervalo e configurado para pular feriados/folgas
-      const shouldSkip = mode === 'range' && ((skipHolidays && isHoliday) || (skipWeekends && isDayOff));
+      const shouldSkip =
+        mode === 'range' && ((skipHolidays && isHoliday) || (skipWeekends && isDayOff));
 
       if (!shouldSkip) {
         const existingForDay = existingLogsByDate[dateStr] || [];
@@ -471,7 +482,6 @@ export const AdminAutoPunchModal: React.FC<AdminAutoPunchModalProps> = ({
         let basePunchesToUse = schedInfo.basePunches;
         let isComplete = false;
 
-        // Se a opção for incluir apenas as que faltam e já existem batidas neste dia
         if (existingAction === 'missing' && hasExisting) {
           basePunchesToUse = getMissingBasePunches(schedInfo.basePunches, existingForDay);
           if (basePunchesToUse.length === 0) {
@@ -489,7 +499,7 @@ export const AdminAutoPunchModal: React.FC<AdminAutoPunchModalProps> = ({
           existingLogs: existingForDay,
           isDayOff,
           isHoliday,
-          isComplete
+          isComplete,
         });
       }
 
@@ -499,39 +509,50 @@ export const AdminAutoPunchModal: React.FC<AdminAutoPunchModalProps> = ({
     setDayPunchesList(list);
   };
 
-  // Recalcular quando mudar funcionário, datas, modo, variação, filtros ou ação de batidas existentes
   useEffect(() => {
     generateAllDaysPunches();
-  }, [selectedEmployeeId, selectedDate, startDate, endDate, mode, variationRange, skipWeekends, skipHolidays, existingDatesSet, existingLogsByDate, existingAction]);
+  }, [
+    selectedEmployeeId,
+    selectedDate,
+    startDate,
+    endDate,
+    mode,
+    variationRange,
+    skipWeekends,
+    skipHolidays,
+    useSchedule5x2,
+    existingDatesSet,
+    existingLogsByDate,
+    existingAction,
+  ]);
 
   const handleManualTimeChange = (dayIndex: number, punchIndex: number, newTime: string) => {
-    setDayPunchesList(prev => {
+    setDayPunchesList((prev) => {
       const next = [...prev];
       if (next[dayIndex] && next[dayIndex].punches[punchIndex]) {
         const p = next[dayIndex].punches[punchIndex];
         const [h1, m1] = p.baseTime.split(':').map(Number);
         const [h2, m2] = newTime.split(':').map(Number);
-        const diff = (h2 * 60 + m2) - (h1 * 60 + m1);
+        const diff = h2 * 60 + m2 - (h1 * 60 + m1);
 
         next[dayIndex].punches[punchIndex] = {
           ...p,
           adjustedTime: newTime,
-          minuteDiff: diff
+          minuteDiff: diff,
         };
       }
       return next;
     });
   };
 
-  // Contagem de dias elegíveis
-  const activeDaysToProcess = dayPunchesList.filter(d => {
+  const activeDaysToProcess = dayPunchesList.filter((d) => {
     if (d.hasExistingLogs && existingAction === 'skip') return false;
     if (existingAction === 'missing' && d.punches.length === 0) return false;
     return true;
   });
 
   const totalPunchesToInsert = activeDaysToProcess.reduce((sum, d) => sum + d.punches.length, 0);
-  const daysWithExistingLogsCount = dayPunchesList.filter(d => d.hasExistingLogs).length;
+  const daysWithExistingLogsCount = dayPunchesList.filter((d) => d.hasExistingLogs).length;
 
   const handleSaveAll = async () => {
     if (!selectedEmployee || dayPunchesList.length === 0) {
@@ -540,48 +561,44 @@ export const AdminAutoPunchModal: React.FC<AdminAutoPunchModalProps> = ({
     }
 
     if (totalPunchesToInsert === 0) {
-      const msg = existingAction === 'skip'
-        ? 'Todos os dias selecionados já possuem batidas e a opção escolhida foi "Pular dias que já possuem batidas".'
-        : 'Todos os dias selecionados já possuem todas as batidas previstas na escala (nada a incluir).';
+      const msg =
+        existingAction === 'skip'
+          ? 'Todos os dias selecionados já possuem batidas e a opção escolhida foi "Pular dias que já possuem batidas".'
+          : 'Todos os dias selecionados já possuem todas as batidas previstas na escala (nada a incluir).';
       alert(msg);
       return;
     }
 
-    const confirmMsg = existingAction === 'missing'
-      ? (mode === 'single'
-          ? `Confirma a inclusão de ${totalPunchesToInsert} batida(s) faltante(s) para ${selectedEmployee.name}? (As batidas já existentes serão mantidas intactas)`
-          : `Confirma a inclusão de ${totalPunchesToInsert} batida(s) faltante(s) em ${activeDaysToProcess.length} dia(s) para ${selectedEmployee.name}? (As batidas já existentes serão mantidas intactas)`)
-      : (mode === 'single'
-          ? `Confirma a gravação de ${totalPunchesToInsert} batida(s) para ${selectedEmployee.name}?`
-          : `Confirma a gravação de ${totalPunchesToInsert} batidas em ${activeDaysToProcess.length} dias para ${selectedEmployee.name}?`);
+    const confirmMsg =
+      existingAction === 'missing'
+        ? `Confirma a inclusão de ${totalPunchesToInsert} batida(s) faltante(s) para ${selectedEmployee.name}? (As batidas já existentes serão mantidas intactas)`
+        : `Confirma a gravação de ${totalPunchesToInsert} batidas em ${activeDaysToProcess.length} dia(s) para ${selectedEmployee.name}?`;
 
     if (!confirm(confirmMsg)) return;
 
     setIsSaving(true);
 
     try {
-      // 1. Apagar batidas anteriores dos dias substituídos APENAS se for 'replace'
       if (existingAction === 'replace') {
-        const datesToReplace = activeDaysToProcess.filter(d => d.hasExistingLogs).map(d => d.date);
+        const datesToReplace = activeDaysToProcess.filter((d) => d.hasExistingLogs).map((d) => d.date);
         for (const dStr of datesToReplace) {
+          const { startIso, endIso } = getLocalDayBoundsIso(dStr, dStr);
           await supabase
             .from('time_logs')
             .delete()
             .eq('employee_id', selectedEmployee.id)
-            .gte('timestamp', `${dStr}T00:00:00`)
-            .lte('timestamp', `${dStr}T23:59:59`);
+            .gte('timestamp', startIso)
+            .lte('timestamp', endIso);
         }
       }
 
-      // 2. Montar lote de batidas
       const baseLat = selectedEmployee.allowed_lat;
       const baseLng = selectedEmployee.allowed_lng;
-
       const allLogsToInsert: any[] = [];
 
       for (const day of activeDaysToProcess) {
         for (const p of day.punches) {
-          const timestampIso = new Date(`${day.date}T${p.adjustedTime}:00`).toISOString();
+          const timestampIso = buildLocalTimestampIso(day.date, p.adjustedTime);
           const hashStr = 'AUTO-' + crypto.randomUUID().replace(/-/g, '').substring(0, 16);
 
           let lat: number | null = null;
@@ -612,12 +629,11 @@ export const AdminAutoPunchModal: React.FC<AdminAutoPunchModalProps> = ({
             cnpj_empregador: selectedEmployee.companies?.cnpj || null,
             razao_social_empregador: selectedEmployee.companies?.name || null,
             is_edited: false,
-            is_manual: false
+            is_manual: false,
           });
         }
       }
 
-      // 3. Salvar em lotes de 100 para segurança
       const chunkSize = 100;
       for (let i = 0; i < allLogsToInsert.length; i += chunkSize) {
         const chunk = allLogsToInsert.slice(i, i + chunkSize);
@@ -625,10 +641,9 @@ export const AdminAutoPunchModal: React.FC<AdminAutoPunchModalProps> = ({
         if (error) throw error;
       }
 
-      const successMsg = existingAction === 'missing'
-        ? `Sucesso! ${allLogsToInsert.length} batida(s) faltante(s) foram incluídas com sucesso para ${selectedEmployee.name}!`
-        : `Sucesso! ${allLogsToInsert.length} batidas foram registradas para ${selectedEmployee.name}!`;
-      alert(successMsg);
+      alert(
+        `Sucesso! ${allLogsToInsert.length} batida(s) foram registradas para ${selectedEmployee.name}!`
+      );
       onSuccess();
       onClose();
     } catch (err: any) {
@@ -655,23 +670,30 @@ export const AdminAutoPunchModal: React.FC<AdminAutoPunchModalProps> = ({
                   Admin Master
                 </span>
               </h3>
-              <p className="text-xs text-industrial-muted">Gere batidas realistas por dia único ou intervalo de datas completo.</p>
+              <p className="text-xs text-industrial-muted">
+                Gere batidas por dia único ou período, respeitando a Escala 5x2 ou o cadastro.
+              </p>
             </div>
           </div>
-          <button onClick={onClose} className="text-industrial-muted hover:text-industrial-text p-1 rounded-lg hover:bg-industrial-bg transition-colors">
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-industrial-muted hover:text-industrial-text p-1 rounded-lg hover:bg-industrial-bg transition-colors"
+          >
             <X size={20} />
           </button>
         </div>
 
         {/* Body */}
         <div className="p-6 overflow-y-auto space-y-5 flex-1 custom-scrollbar">
-          {/* Alternador de Modo: Dia Único x Intervalo de Datas */}
           <div className="flex bg-industrial-bg p-1 rounded-xl border border-industrial-border">
             <button
               type="button"
               onClick={() => setMode('range')}
               className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 ${
-                mode === 'range' ? 'bg-white shadow-sm text-cyber-emerald' : 'text-industrial-muted hover:text-industrial-text'
+                mode === 'range'
+                  ? 'bg-white shadow-sm text-cyber-emerald'
+                  : 'text-industrial-muted hover:text-industrial-text'
               }`}
             >
               <Calendar size={14} /> Intervalo de Datas (Período)
@@ -680,29 +702,30 @@ export const AdminAutoPunchModal: React.FC<AdminAutoPunchModalProps> = ({
               type="button"
               onClick={() => setMode('single')}
               className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 ${
-                mode === 'single' ? 'bg-white shadow-sm text-cyber-emerald' : 'text-industrial-muted hover:text-industrial-text'
+                mode === 'single'
+                  ? 'bg-white shadow-sm text-cyber-emerald'
+                  : 'text-industrial-muted hover:text-industrial-text'
               }`}
             >
               <Clock size={14} /> Dia Único
             </button>
           </div>
 
-          {/* Seleção de Funcionário */}
           <div>
-            <label className="block text-xs font-semibold text-industrial-muted mb-1">
-              Colaborador
-            </label>
+            <label className="block text-xs font-semibold text-industrial-muted mb-1">Colaborador</label>
             <select
               value={selectedEmployeeId}
-              onChange={e => setSelectedEmployeeId(e.target.value)}
+              onChange={(e) => setSelectedEmployeeId(e.target.value)}
               className="w-full bg-industrial-bg border border-industrial-border rounded-xl p-2.5 text-sm focus:border-cyber-emerald focus:outline-none font-medium"
             >
               <option value="">Selecione o colaborador...</option>
-              {employees.map(emp => (
-                <option key={emp.id} value={emp.id}>
-                  {emp.name} {emp.companies?.name ? `(${emp.companies.name})` : ''}
-                </option>
-              ))}
+              {employees
+                .filter((emp) => !isEmployeeInactive(emp))
+                .map((emp) => (
+                  <option key={emp.id} value={emp.id}>
+                    {emp.name} {emp.companies?.name ? `(${emp.companies.name})` : ''}
+                  </option>
+                ))}
             </select>
 
             {selectedEmployee && (
@@ -710,22 +733,27 @@ export const AdminAutoPunchModal: React.FC<AdminAutoPunchModalProps> = ({
                 <div className="font-bold flex items-center justify-between text-emerald-900">
                   <div className="flex items-center gap-1.5">
                     <CheckCircle2 size={14} className="text-cyber-emerald" />
-                    <span>Horários Base no Perfil ({selectedEmployee.schedule_type === 'custom' ? 'Escala Personalizada Semanal' : 'Padrão'}):</span>
+                    <span>
+                      {useSchedule5x2
+                        ? 'Usando folgas e horários da Escala 5x2 (com fallback p/ perfil):'
+                        : 'Horários Base no Perfil:'}
+                    </span>
                   </div>
                 </div>
                 <div className="text-[11px] text-emerald-950 font-medium bg-white/80 p-2 rounded-lg border border-emerald-100 flex flex-wrap gap-x-3 gap-y-1">
-                  {getEmployeeScheduleSummary(selectedEmployee).split(' | ').map((part, idx) => (
-                    <span key={idx} className="inline-flex items-center gap-1">
-                      <span className="w-1.5 h-1.5 rounded-full bg-cyber-emerald"></span>
-                      {part}
-                    </span>
-                  ))}
+                  {getEmployeeScheduleSummary(selectedEmployee)
+                    .split(' | ')
+                    .map((part, idx) => (
+                      <span key={idx} className="inline-flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-cyber-emerald"></span>
+                        {part}
+                      </span>
+                    ))}
                 </div>
               </div>
             )}
           </div>
 
-          {/* Datas conforme o modo */}
           {mode === 'single' ? (
             <div>
               <label className="block text-xs font-semibold text-industrial-muted mb-1 flex items-center gap-1.5">
@@ -734,7 +762,7 @@ export const AdminAutoPunchModal: React.FC<AdminAutoPunchModalProps> = ({
               <input
                 type="date"
                 value={selectedDate}
-                onChange={e => setSelectedDate(e.target.value)}
+                onChange={(e) => setSelectedDate(e.target.value)}
                 className="w-full bg-industrial-bg border border-industrial-border rounded-xl p-2.5 text-sm focus:border-cyber-emerald focus:outline-none font-medium"
               />
             </div>
@@ -747,7 +775,7 @@ export const AdminAutoPunchModal: React.FC<AdminAutoPunchModalProps> = ({
                 <input
                   type="date"
                   value={startDate}
-                  onChange={e => setStartDate(e.target.value)}
+                  onChange={(e) => setStartDate(e.target.value)}
                   className="w-full bg-industrial-bg border border-industrial-border rounded-xl p-2.5 text-sm focus:border-cyber-emerald focus:outline-none font-medium"
                 />
               </div>
@@ -758,38 +786,48 @@ export const AdminAutoPunchModal: React.FC<AdminAutoPunchModalProps> = ({
                 <input
                   type="date"
                   value={endDate}
-                  onChange={e => setEndDate(e.target.value)}
+                  onChange={(e) => setEndDate(e.target.value)}
                   className="w-full bg-industrial-bg border border-industrial-border rounded-xl p-2.5 text-sm focus:border-cyber-emerald focus:outline-none font-medium"
                 />
               </div>
             </div>
           )}
 
-          {/* Opções de Intervalo (apenas no modo range) */}
-          {mode === 'range' && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 bg-industrial-bg/50 p-3 rounded-xl border border-industrial-border text-xs">
-              <label className="flex items-center gap-2 cursor-pointer text-industrial-text font-medium">
-                <input
-                  type="checkbox"
-                  checked={skipWeekends}
-                  onChange={e => setSkipWeekends(e.target.checked)}
-                  className="rounded text-cyber-emerald focus:ring-cyber-emerald"
-                />
-                Pular dias de folga / finais de semana
-              </label>
-              <label className="flex items-center gap-2 cursor-pointer text-industrial-text font-medium">
-                <input
-                  type="checkbox"
-                  checked={skipHolidays}
-                  onChange={e => setSkipHolidays(e.target.checked)}
-                  className="rounded text-cyber-emerald focus:ring-cyber-emerald"
-                />
-                Pular feriados cadastrados
-              </label>
-            </div>
-          )}
+          {/* Opções de Escala e Feriados */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 bg-industrial-bg/50 p-3 rounded-xl border border-industrial-border text-xs">
+            <label className="flex items-center gap-2 cursor-pointer text-industrial-text font-medium">
+              <input
+                type="checkbox"
+                checked={useSchedule5x2}
+                onChange={(e) => setUseSchedule5x2(e.target.checked)}
+                className="rounded text-cyber-emerald focus:ring-cyber-emerald"
+              />
+              Seguir Escala 5x2 ativa
+            </label>
+            {mode === 'range' && (
+              <>
+                <label className="flex items-center gap-2 cursor-pointer text-industrial-text font-medium">
+                  <input
+                    type="checkbox"
+                    checked={skipWeekends}
+                    onChange={(e) => setSkipWeekends(e.target.checked)}
+                    className="rounded text-cyber-emerald focus:ring-cyber-emerald"
+                  />
+                  Pular folgas / domingos
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer text-industrial-text font-medium">
+                  <input
+                    type="checkbox"
+                    checked={skipHolidays}
+                    onChange={(e) => setSkipHolidays(e.target.checked)}
+                    className="rounded text-cyber-emerald focus:ring-cyber-emerald"
+                  />
+                  Pular feriados
+                </label>
+              </>
+            )}
+          </div>
 
-          {/* Configuração da Variação e Método */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-industrial-bg/40 p-4 rounded-xl border border-industrial-border">
             <div>
               <label className="block text-xs font-semibold text-industrial-muted mb-1 flex items-center justify-between">
@@ -798,13 +836,15 @@ export const AdminAutoPunchModal: React.FC<AdminAutoPunchModalProps> = ({
               </label>
               <input
                 type="range"
-                min={2}
-                max={12}
+                min={0}
+                max={15}
                 value={variationRange}
-                onChange={e => setVariationRange(Number(e.target.value))}
+                onChange={(e) => setVariationRange(Number(e.target.value))}
                 className="w-full accent-cyber-emerald cursor-pointer"
               />
-              <span className="text-[10px] text-industrial-muted">Variação natural sorteada em cada batida</span>
+              <span className="text-[10px] text-industrial-muted">
+                0 = horário cravado; 1 a 15 = variação natural
+              </span>
             </div>
 
             <div>
@@ -813,7 +853,7 @@ export const AdminAutoPunchModal: React.FC<AdminAutoPunchModalProps> = ({
               </label>
               <select
                 value={verificationMethod}
-                onChange={e => setVerificationMethod(e.target.value)}
+                onChange={(e) => setVerificationMethod(e.target.value)}
                 className="w-full bg-white border border-industrial-border rounded-lg p-2 text-xs focus:border-cyber-emerald focus:outline-none"
               >
                 <option value="Biometria">Biometria (SecuGen / Passkey)</option>
@@ -824,7 +864,6 @@ export const AdminAutoPunchModal: React.FC<AdminAutoPunchModalProps> = ({
             </div>
           </div>
 
-          {/* Alerta de Dias com Batidas Existentes */}
           {daysWithExistingLogsCount > 0 && (
             <div className="bg-amber-50 border border-amber-200 text-amber-900 text-xs p-3.5 rounded-xl space-y-2">
               <div className="flex items-center gap-2 font-bold text-amber-950">
@@ -866,37 +905,35 @@ export const AdminAutoPunchModal: React.FC<AdminAutoPunchModalProps> = ({
                     onChange={() => setExistingAction('skip')}
                     className="text-cyber-emerald focus:ring-cyber-emerald"
                   />
-                  <span>Pular dias já preenchidos (manter atuais)</span>
+                  <span>Pular dias já preenchidos</span>
                 </label>
               </div>
             </div>
           )}
 
-          {/* Resumo do Período e Botão de Re-sorteio */}
           {selectedEmployee && dayPunchesList.length > 0 && (
             <div>
               <div className="flex justify-between items-center mb-2.5">
-                <div className="flex items-center gap-2">
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-industrial-muted flex items-center gap-1.5">
-                    <Sparkles size={14} className="text-cyber-emerald" /> 
-                    {mode === 'single' ? 'Prévia dos Horários' : `Prévia (${activeDaysToProcess.length} dias úteis • ${totalPunchesToInsert} batidas)`}
-                  </h4>
-                </div>
+                <h4 className="text-xs font-bold uppercase tracking-wider text-industrial-muted flex items-center gap-1.5">
+                  <Sparkles size={14} className="text-cyber-emerald" />
+                  {mode === 'single'
+                    ? 'Prévia dos Horários'
+                    : `Prévia (${activeDaysToProcess.length} dias • ${totalPunchesToInsert} batidas)`}
+                </h4>
                 <button
                   type="button"
                   onClick={generateAllDaysPunches}
                   className="text-xs font-semibold text-cyber-emerald hover:text-emerald-700 flex items-center gap-1.5 px-2.5 py-1 rounded-lg hover:bg-emerald-50 transition-colors"
-                  title="Gera novos minutos aleatórios para todos os dias"
                 >
                   <RefreshCw size={13} /> Sortear Novamente
                 </button>
               </div>
 
-              {/* Lista dos Dias Gerados */}
               <div className="space-y-2.5 border border-industrial-border rounded-xl p-3 bg-white max-h-[260px] overflow-y-auto custom-scrollbar">
                 {dayPunchesList.map((day, dIdx) => {
                   const isSkipped = day.hasExistingLogs && existingAction === 'skip';
-                  const isComplete = day.hasExistingLogs && existingAction === 'missing' && day.punches.length === 0;
+                  const isComplete =
+                    day.hasExistingLogs && existingAction === 'missing' && day.punches.length === 0;
                   const isExpanded = expandedDay === day.date || mode === 'single';
 
                   return (
@@ -921,22 +958,24 @@ export const AdminAutoPunchModal: React.FC<AdminAutoPunchModalProps> = ({
                             {new Date(`${day.date}T12:00:00`).toLocaleDateString('pt-BR')} ({day.dayOfWeekName})
                           </span>
                           {day.hasExistingLogs && (
-                            <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
-                              isSkipped
-                                ? 'bg-gray-200 text-gray-700'
-                                : isComplete
-                                ? 'bg-emerald-100 text-emerald-800'
-                                : existingAction === 'missing'
-                                ? 'bg-blue-100 text-blue-800'
-                                : 'bg-amber-100 text-amber-800'
-                            }`}>
+                            <span
+                              className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
+                                isSkipped
+                                  ? 'bg-gray-200 text-gray-700'
+                                  : isComplete
+                                  ? 'bg-emerald-100 text-emerald-800'
+                                  : existingAction === 'missing'
+                                  ? 'bg-blue-100 text-blue-800'
+                                  : 'bg-amber-100 text-amber-800'
+                              }`}
+                            >
                               {isSkipped
                                 ? 'Já preenchido (será pulado)'
                                 : isComplete
-                                ? `Completo (${day.existingLogs?.length || 0} batidas já registradas)`
+                                ? `Completo (${day.existingLogs?.length || 0} batidas)`
                                 : existingAction === 'missing'
-                                ? `Possui ${day.existingLogs?.length || 0} batida(s) (adicionará +${day.punches.length})`
-                                : 'Já preenchido (será substituído)'}
+                                ? `Possui ${day.existingLogs?.length || 0} (+${day.punches.length})`
+                                : 'Será substituído'}
                             </span>
                           )}
                         </div>
@@ -945,9 +984,9 @@ export const AdminAutoPunchModal: React.FC<AdminAutoPunchModalProps> = ({
                           <div className="flex items-center gap-1.5 text-industrial-muted text-xs">
                             <span className="font-medium text-[11px]">
                               {day.punches.length > 0
-                                ? day.punches.map(p => p.adjustedTime).join(' • ')
+                                ? day.punches.map((p) => p.adjustedTime).join(' • ')
                                 : isComplete
-                                ? 'Dia já completo'
+                                ? 'Dia completo'
                                 : 'Nenhuma batida'}
                             </span>
                             {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
@@ -955,14 +994,12 @@ export const AdminAutoPunchModal: React.FC<AdminAutoPunchModalProps> = ({
                         )}
                       </div>
 
-                      {/* Detalhamento das batidas do dia */}
                       {isExpanded && !isSkipped && (
                         <div className="mt-3 pt-2.5 border-t border-industrial-border/60 space-y-2.5">
-                          {/* Exibir batidas já existentes no banco para este dia */}
                           {day.hasExistingLogs && day.existingLogs && day.existingLogs.length > 0 && (
                             <div className="bg-white/90 p-2.5 rounded-lg border border-industrial-border/60 text-xs">
                               <span className="text-[10px] font-bold uppercase tracking-wider text-industrial-muted block mb-1.5">
-                                Batidas já registradas neste dia ({day.existingLogs.length}):
+                                Batidas já registradas ({day.existingLogs.length}):
                               </span>
                               <div className="flex flex-wrap gap-1.5">
                                 {day.existingLogs.map((ex, eIdx) => (
@@ -978,49 +1015,47 @@ export const AdminAutoPunchModal: React.FC<AdminAutoPunchModalProps> = ({
                             </div>
                           )}
 
-                          {/* Se for modo 'missing' e não faltar nenhuma */}
-                          {isComplete && (
-                            <div className="p-2.5 text-xs text-emerald-800 bg-emerald-50 rounded-lg border border-emerald-200 flex items-center gap-2">
-                              <CheckCircle2 size={14} className="text-emerald-600 shrink-0" />
-                              <span>Todas as batidas previstas na escala já foram registradas para este dia. Nenhuma batida precisa ser adicionada.</span>
-                            </div>
-                          )}
-
-                          {/* Batidas a serem geradas/incluídas */}
                           {day.punches.length > 0 && (
-                            <>
-                              {day.hasExistingLogs && existingAction === 'missing' && (
-                                <span className="text-[10px] font-bold uppercase tracking-wider text-blue-700 block">
-                                  Batidas faltantes que serão incluídas ({day.punches.length}):
-                                </span>
-                              )}
-                              <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                                {day.punches.map((p, pIdx) => (
-                                  <div key={pIdx} className="bg-white p-2.5 rounded-lg border border-industrial-border shadow-xs">
-                                    <div className="flex items-center justify-between gap-1">
-                                      <span className="text-[10px] font-bold text-industrial-muted block truncate">{p.type}</span>
-                                      <span className="text-[9px] text-industrial-muted font-mono bg-industrial-bg px-1 py-0.5 rounded" title="Horário base no cadastro">
-                                        Base: {p.baseTime}
-                                      </span>
-                                    </div>
-                                    <div className="flex items-center justify-between mt-1.5">
-                                      <input
-                                        type="time"
-                                        value={p.adjustedTime}
-                                        onChange={e => handleManualTimeChange(dIdx, pIdx, e.target.value)}
-                                        className="w-16 bg-white border border-industrial-border rounded px-1 text-xs font-mono font-bold focus:border-cyber-emerald focus:outline-none"
-                                      />
-                                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
-                                        p.minuteDiff > 0 ? 'text-emerald-700 bg-emerald-50 border border-emerald-200' :
-                                        p.minuteDiff < 0 ? 'text-amber-700 bg-amber-50 border border-amber-200' : 'text-gray-500 bg-gray-50'
-                                      }`}>
-                                        {p.minuteDiff > 0 ? `+${p.minuteDiff}m` : p.minuteDiff < 0 ? `${p.minuteDiff}m` : '0m'}
-                                      </span>
-                                    </div>
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                              {day.punches.map((p, pIdx) => (
+                                <div
+                                  key={pIdx}
+                                  className="bg-white p-2.5 rounded-lg border border-industrial-border shadow-xs"
+                                >
+                                  <div className="flex items-center justify-between gap-1">
+                                    <span className="text-[10px] font-bold text-industrial-muted block truncate">
+                                      {p.type}
+                                    </span>
+                                    <span className="text-[9px] text-industrial-muted font-mono bg-industrial-bg px-1 py-0.5 rounded">
+                                      Base: {p.baseTime}
+                                    </span>
                                   </div>
-                                ))}
-                              </div>
-                            </>
+                                  <div className="flex items-center justify-between mt-1.5">
+                                    <input
+                                      type="time"
+                                      value={p.adjustedTime}
+                                      onChange={(e) => handleManualTimeChange(dIdx, pIdx, e.target.value)}
+                                      className="w-16 bg-white border border-industrial-border rounded px-1 text-xs font-mono font-bold focus:border-cyber-emerald focus:outline-none"
+                                    />
+                                    <span
+                                      className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                                        p.minuteDiff > 0
+                                          ? 'text-emerald-700 bg-emerald-50 border border-emerald-200'
+                                          : p.minuteDiff < 0
+                                          ? 'text-amber-700 bg-amber-50 border border-amber-200'
+                                          : 'text-gray-500 bg-gray-50'
+                                      }`}
+                                    >
+                                      {p.minuteDiff > 0
+                                        ? `+${p.minuteDiff}m`
+                                        : p.minuteDiff < 0
+                                        ? `${p.minuteDiff}m`
+                                        : '0m'}
+                                    </span>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
                           )}
                         </div>
                       )}
@@ -1037,7 +1072,8 @@ export const AdminAutoPunchModal: React.FC<AdminAutoPunchModalProps> = ({
           <div className="text-xs text-industrial-muted font-medium">
             {totalPunchesToInsert > 0 && (
               <span>
-                Total: <strong>{totalPunchesToInsert} batidas</strong> em <strong>{activeDaysToProcess.length} dia(s)</strong>
+                Total: <strong>{totalPunchesToInsert} batidas</strong> em{' '}
+                <strong>{activeDaysToProcess.length} dia(s)</strong>
               </span>
             )}
           </div>

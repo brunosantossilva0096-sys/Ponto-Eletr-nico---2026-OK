@@ -3,8 +3,16 @@ import { supabase } from '../supabaseClient';
 import { Employee, Company } from '../types';
 import { Users, Search, ArrowRight, ShieldCheck, Building2, ArrowLeft } from 'lucide-react';
 import { motion } from 'motion/react';
+import { getLocalDayBoundsIso, toLocalDateStr } from '../utils/dateUtils';
+import { isEmployeeInactive } from '../utils/companyRules';
 
-export const EmployeeSelect = ({ onSelectEmployee, onAdminLogin }: { onSelectEmployee: (emp: Employee) => void, onAdminLogin: () => void }) => {
+export const EmployeeSelect = ({
+  onSelectEmployee,
+  onAdminLogin,
+}: {
+  onSelectEmployee: (emp: Employee) => void;
+  onAdminLogin: () => void;
+}) => {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [selectedCompany, setSelectedCompany] = useState<Company | null>(null);
@@ -12,19 +20,25 @@ export const EmployeeSelect = ({ onSelectEmployee, onAdminLogin }: { onSelectEmp
 
   useEffect(() => {
     const fetchData = async () => {
-      // Carrega cache local primeiro
-      const cachedEmp = localStorage.getItem('offline_employees');
-      if (cachedEmp) setEmployees(JSON.parse(cachedEmp));
-      
-      const cachedComp = localStorage.getItem('offline_companies');
-      if (cachedComp) setCompanies(JSON.parse(cachedComp));
+      try {
+        const cachedEmp = localStorage.getItem('offline_employees');
+        if (cachedEmp) setEmployees(JSON.parse(cachedEmp));
+
+        const cachedComp = localStorage.getItem('offline_companies');
+        if (cachedComp) setCompanies(JSON.parse(cachedComp));
+      } catch {
+        // ignora cache corrompido
+      }
 
       if (!navigator.onLine) return;
 
       try {
-        const { data: empData } = await supabase.from('employees').select('*, companies(*)').order('name');
+        const { data: empData } = await supabase
+          .from('employees')
+          .select('*, companies(*)')
+          .order('name');
         if (empData) {
-          const validEmp = empData.filter(emp => emp.role !== 'Admin');
+          const validEmp = empData.filter((emp) => emp.role !== 'Admin' && !isEmployeeInactive(emp));
           setEmployees(validEmp);
           localStorage.setItem('offline_employees', JSON.stringify(validEmp));
         }
@@ -33,28 +47,25 @@ export const EmployeeSelect = ({ onSelectEmployee, onAdminLogin }: { onSelectEmp
           setCompanies(compData);
           localStorage.setItem('offline_companies', JSON.stringify(compData));
         }
-        
-        // Faz cache das biometrias para o modo offline
-        const { data: bioData } = await supabase.from('biometric_templates').select('employee_id, template');
+
+        const { data: bioData } = await supabase
+          .from('biometric_templates')
+          .select('employee_id, template');
         if (bioData) {
           localStorage.setItem('offline_templates', JSON.stringify(bioData));
         }
 
-        // Faz cache das batidas de hoje para abertura instantânea do turno
-        const todayDateStr = new Date().toISOString().split('T')[0];
-        const todayStart = new Date();
-        todayStart.setHours(0, 0, 0, 0);
-        const todayEnd = new Date();
-        todayEnd.setHours(23, 59, 59, 999);
+        const todayDateStr = toLocalDateStr();
+        const { startIso, endIso } = getLocalDayBoundsIso(todayDateStr, todayDateStr);
         const { data: todayLogsData } = await supabase
           .from('time_logs')
           .select('*')
-          .gte('timestamp', todayStart.toISOString())
-          .lte('timestamp', todayEnd.toISOString())
+          .gte('timestamp', startIso)
+          .lte('timestamp', endIso)
           .order('timestamp', { ascending: true });
         if (todayLogsData) {
           const logsByEmp: Record<string, any[]> = {};
-          todayLogsData.forEach(l => {
+          todayLogsData.forEach((l) => {
             if (!logsByEmp[l.employee_id]) logsByEmp[l.employee_id] = [];
             logsByEmp[l.employee_id].push(l);
           });
@@ -70,22 +81,21 @@ export const EmployeeSelect = ({ onSelectEmployee, onAdminLogin }: { onSelectEmp
   }, []);
 
   const searchLower = search.toLowerCase();
-  
-  // Filtrar funcionários pela empresa selecionada e termo de busca
+
   const filtered = employees
-    .filter(emp => selectedCompany ? emp.company_id === selectedCompany.id : true)
-    .filter(emp => 
-      emp.name.toLowerCase().includes(searchLower) || 
-      emp.role.toLowerCase().includes(searchLower) ||
-      emp.cpf.includes(search) || 
-      emp.pis.includes(search)
+    .filter((emp) => (selectedCompany ? emp.company_id === selectedCompany.id : true))
+    .filter(
+      (emp) =>
+        (emp.name || '').toLowerCase().includes(searchLower) ||
+        (emp.role || '').toLowerCase().includes(searchLower) ||
+        (emp.cpf || '').includes(search) ||
+        (emp.pis || '').includes(search)
     );
 
-  // Tela Inicial: Seleção de Empresa
   if (!selectedCompany) {
     return (
       <div className="min-h-screen bg-industrial-bg flex items-center justify-center p-4">
-        <motion.div 
+        <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           className="w-full max-w-md bg-white rounded-3xl shadow-xl overflow-hidden border border-industrial-border/50"
@@ -94,14 +104,19 @@ export const EmployeeSelect = ({ onSelectEmployee, onAdminLogin }: { onSelectEmp
             <div className="absolute top-0 right-0 p-4 opacity-20">
               <Building2 size={80} />
             </div>
-            <h1 className="text-2xl md:text-3xl font-bold font-display relative z-10">Ponto Eletrônico Digital</h1>
-            <p className="opacity-90 mt-2 text-sm relative z-10">Selecione a Empresa para bater o ponto</p>
+            <h1 className="text-2xl md:text-3xl font-bold font-display relative z-10">
+              Ponto Eletrônico Digital
+            </h1>
+            <p className="opacity-90 mt-2 text-sm relative z-10">
+              Selecione a Empresa para bater o ponto
+            </p>
           </div>
 
           <div className="p-6 space-y-3 max-h-[360px] overflow-y-auto pr-2 custom-scrollbar">
-            {companies.map(comp => (
+            {companies.map((comp) => (
               <button
                 key={comp.id}
+                type="button"
                 onClick={() => setSelectedCompany(comp)}
                 className="w-full flex items-center justify-between p-4 bg-white border border-industrial-border rounded-2xl hover:border-cyber-emerald hover:shadow-md transition-all group"
               >
@@ -110,11 +125,16 @@ export const EmployeeSelect = ({ onSelectEmployee, onAdminLogin }: { onSelectEmp
                     <Building2 size={18} />
                   </div>
                   <div>
-                    <p className="font-bold text-industrial-text group-hover:text-cyber-emerald transition-colors">{comp.name}</p>
+                    <p className="font-bold text-industrial-text group-hover:text-cyber-emerald transition-colors">
+                      {comp.name}
+                    </p>
                     <p className="text-xs text-industrial-muted mt-1 font-medium">CNPJ: {comp.cnpj}</p>
                   </div>
                 </div>
-                <ArrowRight size={18} className="text-industrial-muted group-hover:text-cyber-emerald transition-transform group-hover:translate-x-1" />
+                <ArrowRight
+                  size={18}
+                  className="text-industrial-muted group-hover:text-cyber-emerald transition-transform group-hover:translate-x-1"
+                />
               </button>
             ))}
 
@@ -122,9 +142,13 @@ export const EmployeeSelect = ({ onSelectEmployee, onAdminLogin }: { onSelectEmp
               <p className="text-center text-industrial-muted py-4">Nenhuma empresa cadastrada.</p>
             )}
           </div>
-          
+
           <div className="bg-industrial-bg p-4 text-center border-t border-industrial-border/50">
-            <button onClick={onAdminLogin} className="text-xs font-semibold text-industrial-muted hover:text-industrial-text transition-colors">
+            <button
+              type="button"
+              onClick={onAdminLogin}
+              className="text-xs font-semibold text-industrial-muted hover:text-industrial-text transition-colors"
+            >
               Acesso Administrativo
             </button>
           </div>
@@ -133,45 +157,53 @@ export const EmployeeSelect = ({ onSelectEmployee, onAdminLogin }: { onSelectEmp
     );
   }
 
-  // Tela Secundária: Seleção de Funcionário da Empresa Escolhida
   return (
     <div className="min-h-screen bg-industrial-bg flex items-center justify-center p-4">
-      <motion.div 
+      <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         className="w-full max-w-md bg-white rounded-3xl shadow-xl overflow-hidden border border-industrial-border/50"
       >
         <div className="p-8 bg-gradient-to-br from-corporate-blue to-cyber-emerald text-white text-center relative overflow-hidden">
-          <button 
-            onClick={() => { setSelectedCompany(null); setSearch(''); }} 
+          <button
+            type="button"
+            onClick={() => {
+              setSelectedCompany(null);
+              setSearch('');
+            }}
             className="absolute left-4 top-4 text-white/80 hover:text-white transition-colors z-20 flex items-center gap-1 text-xs font-medium"
           >
             <ArrowLeft size={16} /> Voltar
           </button>
-          
+
           <div className="absolute top-0 right-0 p-4 opacity-20">
             <ShieldCheck size={80} />
           </div>
-          <h1 className="text-2xl md:text-3xl font-bold font-display relative z-10">{selectedCompany.name}</h1>
-          <p className="opacity-90 mt-2 text-sm relative z-10">Selecione seu perfil para registrar o ponto</p>
+          <h1 className="text-2xl md:text-3xl font-bold font-display relative z-10">
+            {selectedCompany.name}
+          </h1>
+          <p className="opacity-90 mt-2 text-sm relative z-10">
+            Selecione seu perfil para registrar o ponto
+          </p>
         </div>
 
         <div className="p-6">
           <div className="relative mb-6">
             <Search className="absolute left-3 top-3 text-industrial-muted" size={18} />
-            <input 
-              type="text" 
-              placeholder="Buscar por nome, cargo ou CPF..." 
+            <input
+              type="text"
+              placeholder="Buscar por nome, cargo ou CPF..."
               value={search}
-              onChange={e => setSearch(e.target.value)}
+              onChange={(e) => setSearch(e.target.value)}
               className="w-full pl-10 pr-4 py-3 bg-industrial-bg border border-industrial-border rounded-xl focus:outline-none focus:border-cyber-emerald transition-all"
             />
           </div>
 
           <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
-            {filtered.map(emp => (
+            {filtered.map((emp) => (
               <button
                 key={emp.id}
+                type="button"
                 onClick={() => onSelectEmployee(emp)}
                 className="w-full flex items-center justify-between p-4 bg-white border border-industrial-border rounded-2xl hover:border-cyber-emerald hover:shadow-md transition-all group"
               >
@@ -180,22 +212,31 @@ export const EmployeeSelect = ({ onSelectEmployee, onAdminLogin }: { onSelectEmp
                     <Users size={18} />
                   </div>
                   <div className="text-left">
-                    <p className="font-bold text-industrial-text group-hover:text-cyber-emerald transition-colors">{emp.name}</p>
+                    <p className="font-bold text-industrial-text group-hover:text-cyber-emerald transition-colors">
+                      {emp.name}
+                    </p>
                     <p className="text-xs text-industrial-muted mt-1 font-medium">{emp.role}</p>
                   </div>
                 </div>
-                <ArrowRight size={18} className="text-industrial-muted group-hover:text-cyber-emerald transition-transform group-hover:translate-x-1" />
+                <ArrowRight
+                  size={18}
+                  className="text-industrial-muted group-hover:text-cyber-emerald transition-transform group-hover:translate-x-1"
+                />
               </button>
             ))}
-            
+
             {filtered.length === 0 && (
               <p className="text-center text-industrial-muted py-4">Nenhum funcionário encontrado.</p>
             )}
           </div>
         </div>
-        
+
         <div className="bg-industrial-bg p-4 text-center border-t border-industrial-border/50">
-          <button onClick={onAdminLogin} className="text-xs font-semibold text-industrial-muted hover:text-industrial-text transition-colors">
+          <button
+            type="button"
+            onClick={onAdminLogin}
+            className="text-xs font-semibold text-industrial-muted hover:text-industrial-text transition-colors"
+          >
             Acesso Administrativo
           </button>
         </div>
