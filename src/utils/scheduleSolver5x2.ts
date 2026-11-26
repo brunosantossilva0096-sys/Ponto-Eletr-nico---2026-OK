@@ -48,6 +48,7 @@ export interface ScheduleEmployeeConfig {
   customWeeklyHours?: number; // Ex: 44, 42, 40, 36
   registeredShift?: RegisteredShiftInfo; // Horário/carga importados da aba Funcionários
   note?: string;
+  active?: boolean;
 }
 
 export interface CollectiveRule {
@@ -757,7 +758,9 @@ export function generateAndAuditSchedule(
     }
   }
 
-  const activeEmployees = employees.filter((e) => !vacationEmpIds.has(e.id));
+  const activeEmployees = employees.filter(
+    (e) => !vacationEmpIds.has(e.id) && e.active !== false
+  );
 
   for (const emp of activeEmployees) {
     historyCounts[emp.id] = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 };

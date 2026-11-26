@@ -105,6 +105,7 @@ function buildConfigFromDbEmployees(dbEmps: Employee[]): StoredConfig {
     workloadSource: 'policy' as WorkloadSource,
     registeredShift: extractRegisteredShift(dbEmp),
     note: dbEmp.role || '',
+    active: true,
   }));
 
   return {
@@ -190,6 +191,7 @@ export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedA
   const [showCalendar, setShowCalendar] = useState<boolean>(true);
 
   const [employees, setEmployees] = useState<ScheduleEmployeeConfig[]>(initial.employees);
+  const [inactiveEmployees, setInactiveEmployees] = useState<Set<string>>(new Set());
   const [rules, setRules] = useState<CollectiveRule[]>(initial.rules);
   const [shift, setShift] = useState<ShiftTemplate>(initial.shift);
   const [policy, setPolicy] = useState<MtePolicyConfig>(initial.policy || DEFAULT_MTE_POLICY);
@@ -1551,6 +1553,7 @@ export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedA
                     <th className="text-center py-2.5 px-2 font-semibold">Dias Permitidos (Seg–Sáb)</th>
                     <th className="text-center py-2.5 px-2 font-semibold">Alternar</th>
                     <th className="text-left py-2.5 px-3 font-semibold">Observação / Regra</th>
+                    <th className="text-center py-2.5 px-2 font-semibold">Ativo</th>
                     <th className="text-center py-2.5 px-2 font-semibold">Ação</th>
                   </tr>
                 </thead>
@@ -1715,6 +1718,29 @@ export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedA
                           }}
                           placeholder="Observação / Regra"
                           className="w-full px-2 py-1 rounded-md border border-transparent hover:border-industrial-border focus:border-cyber-emerald bg-transparent focus:bg-white text-[11px] text-industrial-text outline-none"
+                        />
+                      </td>
+                      <td className="py-2.5 px-2 text-center">
+                        <input
+                          type="checkbox"
+                          checked={emp.active !== false}
+                          onChange={() => {
+                            setInactiveEmployees((prev) => {
+                              const next = new Set(prev);
+                              if (emp.active !== false) next.add(emp.id);
+                              else next.delete(emp.id);
+                              return next;
+                            });
+                            setEmployees((prev) =>
+                              prev.map((item) =>
+                                item.id === emp.id
+                                  ? { ...item, active: emp.active === false }
+                                  : item
+                              )
+                            );
+                          }}
+                          className="w-4 h-4 accent-emerald-500 cursor-pointer"
+                          title={emp.active !== false ? 'Desativar colaborador' : 'Reativar colaborador'}
                         />
                       </td>
                       <td className="py-2.5 px-2 text-center">
