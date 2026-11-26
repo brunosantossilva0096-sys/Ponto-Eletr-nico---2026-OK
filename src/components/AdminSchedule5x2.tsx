@@ -1961,6 +1961,89 @@ export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedA
             )}
           </div>
 
+          {/* Carga Horária por Funcionário */}
+          <div className="bg-white p-6 rounded-2xl shadow-sm border border-industrial-border space-y-4">
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="font-bold text-base text-industrial-text flex items-center gap-2">
+                <Clock size={18} className="text-cyber-emerald" />
+                Carga Horária por Funcionário
+              </h3>
+              <span className="text-xs text-industrial-muted">
+                Define a carga semanal individual por colaborador nesta empresa
+              </span>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs divide-y divide-industrial-border/60">
+                <thead>
+                  <tr className="border-b border-industrial-border text-industrial-muted bg-industrial-bg">
+                    <th className="text-left py-2.5 px-3 font-semibold">Colaborador</th>
+                    <th className="text-left py-2.5 px-3 font-semibold">Carga Horária Semanal</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {employees.map((emp) => {
+                    const workloadSelectValue =
+                      emp.workloadSource === 'cadastro'
+                        ? 'cadastro'
+                        : emp.workloadSource === 'custom'
+                          ? [44, 42, 40, 36].includes(emp.customWeeklyHours || 0)
+                            ? `custom:${emp.customWeeklyHours}`
+                            : 'custom:other'
+                          : 'policy';
+                    return (
+                      <tr key={emp.id} className="hover:bg-slate-50/70">
+                        <td className="py-2.5 px-3 font-semibold text-industrial-text">{emp.name}</td>
+                        <td className="py-2.5 px-3">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <select
+                              value={workloadSelectValue}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                if (val === 'custom:other') {
+                                  updateEmployeeWorkload(emp.id, `custom:${emp.customWeeklyHours || 30}`);
+                                } else {
+                                  updateEmployeeWorkload(emp.id, val);
+                                }
+                              }}
+                              className="px-2 py-1 rounded-md border border-industrial-border bg-white font-medium text-[11px] outline-none w-48"
+                            >
+                              <option value="policy">Padrão Escala (MTE)</option>
+                              <option value="cadastro">
+                                Aba Funcionários ({emp.registeredShift?.weeklyHours || 44}h)
+                              </option>
+                              <option value="custom:44">Fixo 44h</option>
+                              <option value="custom:42">Fixo 42h</option>
+                              <option value="custom:40">Fixo 40h</option>
+                              <option value="custom:36">Fixo 36h</option>
+                              <option value="custom:other">Outra (h/sem)...</option>
+                            </select>
+                            {emp.workloadSource === 'custom' &&
+                              ![44, 42, 40, 36].includes(emp.customWeeklyHours || 0) && (
+                                <input
+                                  type="number"
+                                  min={1}
+                                  max={44}
+                                  value={emp.customWeeklyHours || 30}
+                                  onChange={(e) =>
+                                    updateEmployeeWorkload(emp.id, `custom:${e.target.value}`)
+                                  }
+                                  className="w-16 px-1.5 py-1 rounded-md border border-cyber-emerald text-[11px] text-center font-bold outline-none"
+                                  title="Horas semanais personalizadas"
+                                />
+                              )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            {employees.length === 0 && (
+              <p className="text-xs text-industrial-muted">Nenhum colaborador configurado para esta empresa.</p>
+            )}
+          </div>
+
           {/* Resultado da Auditoria */}
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-industrial-border space-y-4">
             <div className="flex items-center justify-between flex-wrap gap-2">
