@@ -264,6 +264,22 @@ export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedA
     );
   };
 
+  const updateEmployeeShift = (empId: string, field: 'workStart' | 'breakStart' | 'breakEnd' | 'workEnd', value: string) => {
+    setEmployees((prev) =>
+      prev.map((item) => {
+        if (item.id !== empId) return item;
+        return {
+          ...item,
+          workloadSource: 'custom',
+          registeredShift: {
+            ...item.registeredShift,
+            [field]: value || undefined,
+          },
+        };
+      })
+    );
+  };
+
   useEffect(() => {
     try {
       localStorage.setItem(
@@ -1969,7 +1985,7 @@ export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedA
                 Carga Horária por Funcionário
               </h3>
               <span className="text-xs text-industrial-muted">
-                Define a carga semanal individual por colaborador nesta empresa
+                Define a carga semanal e as quatro batidas do ponto por colaborador
               </span>
             </div>
             <div className="overflow-x-auto">
@@ -1977,7 +1993,11 @@ export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedA
                 <thead>
                   <tr className="border-b border-industrial-border text-industrial-muted bg-industrial-bg">
                     <th className="text-left py-2.5 px-3 font-semibold">Colaborador</th>
-                    <th className="text-left py-2.5 px-3 font-semibold">Carga Horária Semanal (h)</th>
+                    <th className="text-center py-2.5 px-2 font-semibold">Carga (h/sem)</th>
+                    <th className="text-center py-2.5 px-2 font-semibold">Entrada</th>
+                    <th className="text-center py-2.5 px-2 font-semibold">Int. Início</th>
+                    <th className="text-center py-2.5 px-2 font-semibold">Int. Fim</th>
+                    <th className="text-center py-2.5 px-2 font-semibold">Saída</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1988,30 +2008,55 @@ export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedA
                         : emp.workloadSource === 'cadastro' && emp.registeredShift?.weeklyHours
                           ? emp.registeredShift.weeklyHours
                           : 44;
+                    const rs = emp.registeredShift;
                     return (
                       <tr key={emp.id} className="hover:bg-slate-50/70">
                         <td className="py-2.5 px-3 font-semibold text-industrial-text">{emp.name}</td>
-                        <td className="py-2.5 px-3">
-                          <div className="flex items-center gap-2">
-                            <input
-                              type="number"
-                              min={1}
-                              max={44}
-                              value={currentHours}
-                              onChange={(e) => {
-                                const val = Number(e.target.value) || 44;
-                                updateEmployeeWorkload(emp.id, `custom:${val}`);
-                              }}
-                              className="w-20 px-2 py-1 rounded-md border border-industrial-border text-sm text-industrial-text outline-none focus:border-cyber-emerald text-center font-semibold"
-                              title="Horas semanais personalizadas"
-                            />
-                            <span className="text-[10px] text-industrial-muted">h/sem</span>
-                          </div>
-                          <div className="mt-1 flex items-center gap-1">
-                            <span className="text-[10px] font-medium">
-                              {emp.workloadSource === 'custom' ? 'Personalizado' : emp.workloadSource === 'cadastro' ? 'Aba Funcionários' : 'Padrão MTE'}
-                            </span>
-                          </div>
+                        <td className="py-2.5 px-2 text-center">
+                          <input
+                            type="number"
+                            min={1}
+                            max={44}
+                            value={currentHours}
+                            onChange={(e) => {
+                              const val = Number(e.target.value) || 44;
+                              updateEmployeeWorkload(emp.id, `custom:${val}`);
+                            }}
+                            className="w-16 px-1.5 py-1 rounded-md border border-industrial-border text-xs text-industrial-text outline-none focus:border-cyber-emerald text-center font-semibold"
+                            title="Horas semanais personalizadas"
+                          />
+                        </td>
+                        <td className="py-2.5 px-2 text-center">
+                          <input
+                            type="time"
+                            value={rs?.workStart || ''}
+                            onChange={(e) => updateEmployeeShift(emp.id, 'workStart', e.target.value)}
+                            className="w-20 px-1.5 py-1 rounded-md border border-industrial-border text-xs text-industrial-text outline-none focus:border-cyber-emerald"
+                          />
+                        </td>
+                        <td className="py-2.5 px-2 text-center">
+                          <input
+                            type="time"
+                            value={rs?.breakStart || ''}
+                            onChange={(e) => updateEmployeeShift(emp.id, 'breakStart', e.target.value)}
+                            className="w-20 px-1.5 py-1 rounded-md border border-industrial-border text-xs text-industrial-text outline-none focus:border-cyber-emerald"
+                          />
+                        </td>
+                        <td className="py-2.5 px-2 text-center">
+                          <input
+                            type="time"
+                            value={rs?.breakEnd || ''}
+                            onChange={(e) => updateEmployeeShift(emp.id, 'breakEnd', e.target.value)}
+                            className="w-20 px-1.5 py-1 rounded-md border border-industrial-border text-xs text-industrial-text outline-none focus:border-cyber-emerald"
+                          />
+                        </td>
+                        <td className="py-2.5 px-2 text-center">
+                          <input
+                            type="time"
+                            value={rs?.workEnd || ''}
+                            onChange={(e) => updateEmployeeShift(emp.id, 'workEnd', e.target.value)}
+                            className="w-20 px-1.5 py-1 rounded-md border border-industrial-border text-xs text-industrial-text outline-none focus:border-cyber-emerald"
+                          />
                         </td>
                       </tr>
                     );
