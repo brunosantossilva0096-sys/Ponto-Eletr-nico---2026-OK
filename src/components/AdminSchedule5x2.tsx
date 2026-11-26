@@ -194,6 +194,12 @@ export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedA
   const [shift, setShift] = useState<ShiftTemplate>(initial.shift);
   const [policy, setPolicy] = useState<MtePolicyConfig>(initial.policy || DEFAULT_MTE_POLICY);
 
+  // Férias: employeeId -> { month, year }[]
+  const [vacations, setVacations] = useState<Record<string, { month: number; year: number }[]>>({});
+  const [vacEmpId, setVacEmpId] = useState<string>('');
+  const [vacMonth, setVacMonth] = useState<number>(now.getMonth());
+  const [vacYear, setVacYear] = useState<number>(now.getFullYear());
+
   // Gerenciamento de grupos (criar, editar, excluir)
   const [groups, setGroups] = useState<GroupId[]>(['A', 'B']);
   const [newGroupName, setNewGroupName] = useState<GroupId>('A');
@@ -299,8 +305,8 @@ export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedA
   }, [effectiveCompanyId, employees, rules, shift, policy]);
 
   const solverResult = useMemo(() => {
-    return generateAndAuditSchedule(selectedYear, selectedMonth, employees, rules, shift, policy);
-  }, [selectedYear, selectedMonth, employees, rules, shift, policy]);
+    return generateAndAuditSchedule(selectedYear, selectedMonth, employees, rules, shift, policy, vacations);
+  }, [selectedYear, selectedMonth, employees, rules, shift, policy, vacations]);
 
   const allAuditsPassed =
     solverResult.success && solverResult.audits.every((a) => a.passed);
@@ -497,6 +503,33 @@ export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedA
     ];
     setRules((prev) => [...prev, ...standardRules]);
     alert('Regras coletivas padrão aplicadas. Selecione os colaboradores em cada regra.');
+  };
+
+  // Férias
+  const handleAddVacation = () => {
+    if (!vacEmpId) return;
+    const key = `${vacYear}-${String(vacMonth + 1).padStart(2, '0')}`;
+    setVacations((prev) => {
+      const existing = prev[vacEmpId] || [];
+      if (existing.some((v) => v.month === vacMonth && v.year === vacYear)) return prev;
+      return { ...prev, [vacEmpId]: [...existing, { month: vacMonth, year: vacYear }] };
+    });
+  };
+
+  const handleRemoveVacation = (empId: string, month: number, year: number) => {
+    setVacations((prev) => {
+      const existing = prev[empId] || [];
+      const next = existing.filter((v) => !(v.month === month && v.year === year));
+      if (next.length === 0) {
+        const { [empId]: _, ...rest } = prev;
+        return rest;
+      }
+      return { ...prev, [empId]: next };
+    });
+  };
+
+  const isEmployeeOnVacation = (empId: string, month: number, year: number) => {
+    return vacations[empId]?.some((v) => v.month === month && v.year === year) ?? false;
   };
 
   const handleRestoreDefaults = () => {
@@ -1954,6 +1987,121 @@ export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedA
             </form>
           </div>
 
+          {/* Férias de Funcionários */}
+          <div className="bg-white p-6 rounded-2xl shadow-sm border border-industrial-border space-y-4">
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="font-bold text-base text-industrial-text flex items-center gap-2">
+                <Calendar size={18} className="text-cyber-emerald" />
+                Férias de Funcionários
+              </h3>
+              <span className="text-xs text-industrial-muted">
+                Funcionários de férias são excluídos da escala no mês selecionado
+              </span>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+              <div>
+                <label className="block text-[11px] font-semibold text-industrial-muted mb-1">
+                  Funcionário
+                </label>
+                <select
+                  value={vacEmpId}
+                  onChange={(e) => setVacEmpId(e.target.value)}
+                  className="w-full px-2.5 py-2 rounded-lg border border-industrial-border bg-white text-xs font-semibold outline-none focus:border-cyber-emerald"
+                >
+                  <option value="">Selecione um colaborador</option>
+                  {employees.map((emp) => (
+                    <option key={emp.id} value={emp.id}>
+                      {emp.name} (Grupo {emp.group})
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-[11px] font-semibold text-industrial-muted mb-1">
+                  Mês
+                </label>
+                <select
+                  value={vacMonth}
+                  onChange={(e) => setVacMonth(Number(e.target.value))}
+                  className="w-full px-2.5 py-2 rounded-lg border border-industrial-border bg-white text-xs font-semibold outline-none focus:border-cyber-emerald"
+                >
+                  {MONTH_NAMES.map((m, idx) => (
+                    <option key={m} value={idx}>{m}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-[11px] font-semibold text-industrial-muted mb-1">
+                  Ano
+                </label>
+                <input
+                  type="number"
+                  min={2020}
+                  max={2030}
+                  value={vacYear}
+                  onChange={(e) => setVacYear(Number(e.target.value) || now.getFullYear())}
+                  className="w-full px-2.5 py-2 rounded-lg border border-industrial-border bg-white text-xs font-semibold outline-none focus:border-cyber-emerald"
+                />
+              </div>
+              <div>
+                <button
+                  type="button"
+                  onClick={handleAddVacation}
+                  disabled={!vacEmpId}
+                  className="w-full px-3 py-2 rounded-lg bg-cyber-emerald text-white text-xs font-bold flex items-center justify-center gap-2 hover:bg-opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Plus size={14} /> Adicionar Férias
+                </button>
+              </div>
+            </div>
+            {Object.entries(vacations).length > 0 && (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs divide-y divide-industrial-border/60">
+                  <thead>
+                    <tr className="border-b border-industrial-border text-industrial-muted bg-industrial-bg">
+                      <th className="text-left py-2.5 px-3 font-semibold">Funcionário</th>
+                      <th className="text-center py-2.5 px-2 font-semibold">Mês/Ano</th>
+                      <th className="text-center py-2.5 px-2 font-semibold">Ação</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(() => {
+                      const rows: any[] = [];
+                      for (const [empId, vacList] of Object.entries(vacations)) {
+                        for (const v of vacList as any[]) {
+                          const emp = employees.find((e) => e.id === empId);
+                          rows.push(
+                            <tr key={`${empId}-${v.year}-${v.month}`} className="hover:bg-amber-50/70">
+                              <td className="py-2.5 px-3 font-semibold text-industrial-text">
+                                {emp ? emp.name : empId}
+                              </td>
+                              <td className="py-2.5 px-2 text-center">
+                                {MONTH_NAMES[v.month]}/{v.year}
+                              </td>
+                              <td className="py-2.5 px-2 text-center">
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveVacation(empId, v.month, v.year)}
+                                  className="text-xs font-semibold text-red-600 hover:bg-red-50 px-2 py-1 rounded-md"
+                                >
+                                  Remover
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        }
+                      }
+                      return rows;
+                    })()}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            {Object.entries(vacations).length === 0 && (
+              <p className="text-xs text-industrial-muted text-center">Nenhuma férias cadastrada.</p>
+            )}
+          </div>
+
           {/* Condições Coletivas */}
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-industrial-border space-y-4">
             <div>
@@ -2024,6 +2172,21 @@ export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedA
               className="w-full px-3 py-2 rounded-lg border border-cyber-emerald bg-cyber-emerald/10 text-xs font-semibold text-cyber-emerald hover:bg-cyber-emerald/20 flex items-center justify-center gap-2"
             >
               <Sparkles size={14} /> Aplicar Regras Padrão (ULTRAMED MAIOBÃO)
+            </button>
+
+            {/* Botão Mínimo de Presentes */}
+            <button
+              type="button"
+              onClick={() => {
+                setNewRuleEmpIds([]);
+                setNewRuleMaxOff(1);
+                setNewRuleMinPresent(9);
+                setNewRuleName('Mínimo 9 presentes por dia útil');
+                alert('Regra "Mínimo 9 presentes por dia útil" configurada. Selecione os colaboradores da empresa e clique em Criar Regra.');
+              }}
+              className="w-full px-3 py-2 rounded-lg border border-emerald-500 bg-emerald-50/10 text-xs font-semibold text-emerald-700 hover:bg-emerald-50/20 flex items-center justify-center gap-2"
+            >
+              <ShieldCheck size={14} /> Mín. 9 Presentes por Dia (ULTRAMED MAIOBÃO)
             </button>
 
             {/* Form Nova Regra Coletiva */}

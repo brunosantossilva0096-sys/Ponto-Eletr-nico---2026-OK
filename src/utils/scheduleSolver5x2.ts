@@ -741,13 +741,25 @@ export function generateAndAuditSchedule(
   employees: ScheduleEmployeeConfig[],
   rules: CollectiveRule[],
   shift: ShiftTemplate,
-  policy: MtePolicyConfig = DEFAULT_MTE_POLICY
+  policy: MtePolicyConfig = DEFAULT_MTE_POLICY,
+  vacations?: Record<string, { month: number; year: number }[]>
 ): SolverResult {
   const weeks = buildMonthWeeks(year, monthIndex0);
   const assignments: WeekAssignment[] = [];
   const historyCounts: Record<string, Record<Weekday, number>> = {};
 
-  for (const emp of employees) {
+  const vacationEmpIds = new Set<string>();
+  if (vacations) {
+    for (const [empId, vacList] of Object.entries(vacations)) {
+      if (vacList.some((v) => v.month === monthIndex0 && v.year === year)) {
+        vacationEmpIds.add(empId);
+      }
+    }
+  }
+
+  const activeEmployees = employees.filter((e) => !vacationEmpIds.has(e.id));
+
+  for (const emp of activeEmployees) {
     historyCounts[emp.id] = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 };
   }
 
