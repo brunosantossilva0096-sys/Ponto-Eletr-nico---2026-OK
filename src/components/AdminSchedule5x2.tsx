@@ -1977,60 +1977,40 @@ export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedA
                 <thead>
                   <tr className="border-b border-industrial-border text-industrial-muted bg-industrial-bg">
                     <th className="text-left py-2.5 px-3 font-semibold">Colaborador</th>
-                    <th className="text-left py-2.5 px-3 font-semibold">Carga Horária Semanal</th>
+                    <th className="text-left py-2.5 px-3 font-semibold">Carga Horária Semanal (h)</th>
                   </tr>
                 </thead>
                 <tbody>
                   {employees.map((emp) => {
-                    const workloadSelectValue =
-                      emp.workloadSource === 'cadastro'
-                        ? 'cadastro'
-                        : emp.workloadSource === 'custom'
-                          ? [44, 42, 40, 36].includes(emp.customWeeklyHours || 0)
-                            ? `custom:${emp.customWeeklyHours}`
-                            : 'custom:other'
-                          : 'policy';
+                    const currentHours =
+                      emp.workloadSource === 'custom' && emp.customWeeklyHours
+                        ? emp.customWeeklyHours
+                        : emp.workloadSource === 'cadastro' && emp.registeredShift?.weeklyHours
+                          ? emp.registeredShift.weeklyHours
+                          : 44;
                     return (
                       <tr key={emp.id} className="hover:bg-slate-50/70">
                         <td className="py-2.5 px-3 font-semibold text-industrial-text">{emp.name}</td>
                         <td className="py-2.5 px-3">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <select
-                              value={workloadSelectValue}
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="number"
+                              min={1}
+                              max={44}
+                              value={currentHours}
                               onChange={(e) => {
-                                const val = e.target.value;
-                                if (val === 'custom:other') {
-                                  updateEmployeeWorkload(emp.id, `custom:${emp.customWeeklyHours || 30}`);
-                                } else {
-                                  updateEmployeeWorkload(emp.id, val);
-                                }
+                                const val = Number(e.target.value) || 44;
+                                updateEmployeeWorkload(emp.id, `custom:${val}`);
                               }}
-                              className="px-2 py-1 rounded-md border border-industrial-border bg-white font-medium text-[11px] outline-none w-48"
-                            >
-                              <option value="policy">Padrão Escala (MTE)</option>
-                              <option value="cadastro">
-                                Aba Funcionários ({emp.registeredShift?.weeklyHours || 44}h)
-                              </option>
-                              <option value="custom:44">Fixo 44h</option>
-                              <option value="custom:42">Fixo 42h</option>
-                              <option value="custom:40">Fixo 40h</option>
-                              <option value="custom:36">Fixo 36h</option>
-                              <option value="custom:other">Outra (h/sem)...</option>
-                            </select>
-                            {emp.workloadSource === 'custom' &&
-                              ![44, 42, 40, 36].includes(emp.customWeeklyHours || 0) && (
-                                <input
-                                  type="number"
-                                  min={1}
-                                  max={44}
-                                  value={emp.customWeeklyHours || 30}
-                                  onChange={(e) =>
-                                    updateEmployeeWorkload(emp.id, `custom:${e.target.value}`)
-                                  }
-                                  className="w-16 px-1.5 py-1 rounded-md border border-cyber-emerald text-[11px] text-center font-bold outline-none"
-                                  title="Horas semanais personalizadas"
-                                />
-                              )}
+                              className="w-20 px-2 py-1 rounded-md border border-industrial-border text-sm text-industrial-text outline-none focus:border-cyber-emerald text-center font-semibold"
+                              title="Horas semanais personalizadas"
+                            />
+                            <span className="text-[10px] text-industrial-muted">h/sem</span>
+                          </div>
+                          <div className="mt-1 flex items-center gap-1">
+                            <span className="text-[10px] font-medium">
+                              {emp.workloadSource === 'custom' ? 'Personalizado' : emp.workloadSource === 'cadastro' ? 'Aba Funcionários' : 'Padrão MTE'}
+                            </span>
                           </div>
                         </td>
                       </tr>
