@@ -85,19 +85,67 @@ function extractRegisteredShift(dbEmp: Employee) {
   };
 }
 
-function buildConfigFromDbEmployees(dbEmps: Employee[]): StoredConfig {
+const ULTRAMD_STANDARD_NOTE =
+  'Distribuído entre Seg e Sex obedecendo travas coletivas e equilíbrio da equipe';
+
+function getUltramdMaiobaoTemplate(companiesList: Company[]): StoredConfig {
+  const ultramdComp = companiesList.find((c) => /ultramd.*maiob|maiob/i.test(c.name));
+  const candidateKeys = [
+    ultramdComp ? getCompanyStorageKey(ultramdComp.id) : null,
+    getCompanyStorageKey(''),
+    STORAGE_KEY_PREFIX,
+  ].filter(Boolean) as string[];
+
+  for (const key of candidateKeys) {
+    try {
+      const raw = localStorage.getItem(key);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed.employees) && parsed.employees.length > 0 && parsed.shift) {
+          return {
+            employees: parsed.employees,
+            rules: Array.isArray(parsed.rules) ? parsed.rules : DEFAULT_COLLECTIVE_RULES,
+            shift: parsed.shift,
+            policy: parsed.policy || DEFAULT_MTE_POLICY,
+          };
+        }
+      }
+    } catch {
+      // Ignora erro e tenta próximo fallback
+    }
+  }
+
+  return {
+    employees: DEFAULT_SCHEDULE_EMPLOYEES,
+    rules: DEFAULT_COLLECTIVE_RULES,
+    shift: DEFAULT_SHIFT_TEMPLATE,
+    policy: DEFAULT_MTE_POLICY,
+  };
+}
+
+function buildConfigFromDbEmployees(
+  dbEmps: Employee[],
+  template?: StoredConfig
+): StoredConfig {
+  const baseTemplate = template || {
+    employees: DEFAULT_SCHEDULE_EMPLOYEES,
+    rules: DEFAULT_COLLECTIVE_RULES,
+    shift: DEFAULT_SHIFT_TEMPLATE,
+    policy: DEFAULT_MTE_POLICY,
+  };
+
   if (dbEmps.length === 0) {
     return {
       employees: [],
       rules: [],
-      shift: DEFAULT_SHIFT_TEMPLATE,
-      policy: DEFAULT_MTE_POLICY,
+      shift: baseTemplate.shift,
+      policy: baseTemplate.policy || DEFAULT_MTE_POLICY,
     };
   }
 
   const mapped: ScheduleEmployeeConfig[] = dbEmps.map((dbEmp) => {
     const normName = dbEmp.name.trim().toLowerCase();
-    const preset = DEFAULT_SCHEDULE_EMPLOYEES.find((d) => {
+    const preset = baseTemplate.employees.find((d) => {
       const pName = d.name.toLowerCase();
       return normName === pName || normName.startsWith(`${pName} `);
     });
@@ -108,21 +156,47 @@ function buildConfigFromDbEmployees(dbEmps: Employee[]): StoredConfig {
       allowedDays: preset?.allowedDays || [1, 2, 3, 4, 5],
       alternateDays: preset?.alternateDays || false,
       shiftProfile: preset?.shiftProfile || 'group',
-      workloadSource: 'policy',
+      workloadSource: preset?.workloadSource || 'policy',
+      customWeeklyHours: preset?.customWeeklyHours,
       registeredShift: extractRegisteredShift(dbEmp),
-      note: preset?.note || (dbEmp.role ? `${dbEmp.role}` : 'Colaborador cadastrado'),
+      note: preset?.note || ULTRAMD_STANDARD_NOTE,
     };
   });
 
+  // Adapta regras coletivas do template para os IDs desta empresa caso haja correspondência por nome
+  const mappedRules: CollectiveRule[] = baseTemplate.rules
+    .map((rule) => {
+      const matchedIds = rule.employeeIds
+        .map((origId) => {
+          const origEmp = baseTemplate.employees.find((e) => e.id === origId);
+          if (!origEmp) return null;
+          const origName = origEmp.name.trim().toLowerCase();
+          const target = mapped.find(
+            (m) =>
+              m.name.trim().toLowerCase() === origName ||
+              m.name.trim().toLowerCase().startsWith(`${origName} `)
+          );
+          return target?.id || null;
+        })
+        .filter((id): id is string => Boolean(id));
+      if (matchedIds.length < 2) return null;
+      return { ...rule, employeeIds: matchedIds };
+    })
+    .filter((r): r is CollectiveRule => Boolean(r));
+
   return {
     employees: mapped,
-    rules: [],
-    shift: DEFAULT_SHIFT_TEMPLATE,
-    policy: DEFAULT_MTE_POLICY,
+    rules: mappedRules,
+    shift: baseTemplate.shift,
+    policy: baseTemplate.policy || DEFAULT_MTE_POLICY,
   };
 }
 
-function loadStoredConfig(companyId: string, dbEmpsForCompany?: Employee[]): StoredConfig {
+function loadStoredConfig(
+  companyId: string,
+  dbEmpsForCompany?: Employee[],
+  template?: StoredConfig
+): StoredConfig {
   const key = getCompanyStorageKey(companyId);
   try {
     const raw = localStorage.getItem(key) || (!companyId ? localStorage.getItem(STORAGE_KEY_PREFIX) : null);
@@ -140,15 +214,17 @@ function loadStoredConfig(companyId: string, dbEmpsForCompany?: Employee[]): Sto
   }
 
   if (companyId && dbEmpsForCompany) {
-    return buildConfigFromDbEmployees(dbEmpsForCompany);
+    return buildConfigFromDbEmployees(dbEmpsForCompany, template);
   }
 
-  return {
-    employees: DEFAULT_SCHEDULE_EMPLOYEES,
-    rules: DEFAULT_COLLECTIVE_RULES,
-    shift: DEFAULT_SHIFT_TEMPLATE,
-    policy: DEFAULT_MTE_POLICY,
-  };
+  return (
+    template || {
+      employees: DEFAULT_SCHEDULE_EMPLOYEES,
+      rules: DEFAULT_COLLECTIVE_RULES,
+      shift: DEFAULT_SHIFT_TEMPLATE,
+      policy: DEFAULT_MTE_POLICY,
+    }
+  );
 }
 
 export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedAdmin }) => {
@@ -228,7 +304,8 @@ export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedA
   // Recarrega configuração da empresa selecionada quando muda a empresa ou os dados do banco carregam
   useEffect(() => {
     if (!dbLoaded && effectiveCompanyId) return;
-    const cfg = loadStoredConfig(effectiveCompanyId, companyDbEmployees);
+    const ultramdTemplate = getUltramdMaiobaoTemplate(companies);
+    const cfg = loadStoredConfig(effectiveCompanyId, companyDbEmployees, ultramdTemplate);
     setEmployees(cfg.employees);
     setRules(cfg.rules);
     setShift(cfg.shift);
@@ -236,6 +313,40 @@ export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedA
     setIndRuleEmpId(cfg.employees[0]?.id || '');
     setNewRuleEmpIds([]);
   }, [effectiveCompanyId, dbLoaded]);
+
+  const hasGroupDistinction = useMemo(
+    () => employees.some((e) => e.group === 'A') && employees.some((e) => e.group === 'B'),
+    [employees]
+  );
+
+  const updateEmployeeWorkload = (empId: string, val: string) => {
+    setEmployees((prev) =>
+      prev.map((item) => {
+        if (item.id !== empId) return item;
+        if (val === 'policy') {
+          return { ...item, workloadSource: 'policy', customWeeklyHours: undefined };
+        }
+        if (val === 'cadastro') {
+          const dbMatch = dbEmployees.find(
+            (d) =>
+              d.id === item.id ||
+              d.name.trim().toLowerCase() === item.name.trim().toLowerCase()
+          );
+          return {
+            ...item,
+            workloadSource: 'cadastro',
+            registeredShift: dbMatch ? extractRegisteredShift(dbMatch) : item.registeredShift,
+          };
+        }
+        const hrs = Math.max(1, Math.min(44, Number(val.replace('custom:', '')) || 44));
+        return {
+          ...item,
+          workloadSource: 'custom',
+          customWeeklyHours: hrs,
+        };
+      })
+    );
+  };
 
   useEffect(() => {
     try {
@@ -413,9 +524,10 @@ export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedA
   };
 
   const handleRestoreDefaults = () => {
-    if (confirm('Deseja restaurar todas as condições individuais, coletivas e a política MTE 2.041/2026 para o padrão original desta empresa?')) {
+    if (confirm('Deseja restaurar todas as condições individuais, coletivas e a política MTE 2.041/2026 para o padrão original (ULTRAMD MAIOBÃO)?')) {
+      const ultramdTemplate = getUltramdMaiobaoTemplate(companies);
       if (effectiveCompanyId && companyDbEmployees.length > 0) {
-        const fresh = buildConfigFromDbEmployees(companyDbEmployees);
+        const fresh = buildConfigFromDbEmployees(companyDbEmployees, ultramdTemplate);
         setEmployees(fresh.employees);
         setRules(fresh.rules);
         setShift(fresh.shift);
@@ -429,13 +541,35 @@ export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedA
     }
   };
 
+  const handleApplyUltramdTemplate = () => {
+    const ultramdTemplate = getUltramdMaiobaoTemplate(companies);
+    setEmployees((prev) =>
+      prev.map((emp) => {
+        const normName = emp.name.trim().toLowerCase();
+        const preset = ultramdTemplate.employees.find((d) => {
+          const pName = d.name.trim().toLowerCase();
+          return normName === pName || normName.startsWith(`${pName} `);
+        });
+        return {
+          ...emp,
+          note: preset?.note || ULTRAMD_STANDARD_NOTE,
+          allowedDays: preset?.allowedDays || emp.allowedDays,
+          alternateDays: preset ? preset.alternateDays : emp.alternateDays,
+          shiftProfile: preset?.shiftProfile || emp.shiftProfile,
+        };
+      })
+    );
+    setPolicy(ultramdTemplate.policy || DEFAULT_MTE_POLICY);
+    alert('Padrão de Observação / Regra da ULTRAMD MAIOBÃO aplicado para esta empresa!');
+  };
+
   const handleSyncCompanyEmployees = () => {
     const source = effectiveCompanyId ? companyDbEmployees : dbEmployees;
     if (source.length === 0) {
       alert('Nenhum colaborador cadastrado no banco para esta empresa.');
       return;
     }
-    const fresh = buildConfigFromDbEmployees(source);
+    const fresh = buildConfigFromDbEmployees(source, getUltramdMaiobaoTemplate(companies));
     // Preserva regras individuais já configuradas para colaboradores existentes (por id ou nome)
     const merged = fresh.employees.map((fe) => {
       const existing = employees.find(
@@ -979,7 +1113,10 @@ export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedA
                         <thead>
                           <tr className="border-b border-industrial-border bg-slate-50/70 text-industrial-muted">
                             <th className="text-left py-2.5 px-4 font-semibold">Colaborador</th>
-                            <th className="text-center py-2.5 px-2 font-semibold">Grupo</th>
+                            {hasGroupDistinction && (
+                              <th className="text-center py-2.5 px-2 font-semibold">Grupo</th>
+                            )}
+                            <th className="text-center py-2.5 px-2 font-semibold">Carga Horária</th>
                             {ALL_WEEKDAYS.map((d) => {
                               const iso = week.datesByDow[d];
                               return (
@@ -1050,16 +1187,70 @@ export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedA
                                     </span>
                                   )}
                                 </td>
-                                <td className="py-2.5 px-2 text-center">
-                                  <span
-                                    className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                                      emp.group === 'A'
-                                        ? 'bg-sky-50 text-sky-700 border border-sky-200'
-                                        : 'bg-purple-50 text-purple-700 border border-purple-200'
-                                    }`}
-                                  >
-                                    Grupo {emp.group}
-                                  </span>
+                                {hasGroupDistinction && (
+                                  <td className="py-2.5 px-2 text-center">
+                                    <span
+                                      className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                        emp.group === 'A'
+                                          ? 'bg-sky-50 text-sky-700 border border-sky-200'
+                                          : 'bg-purple-50 text-purple-700 border border-purple-200'
+                                      }`}
+                                    >
+                                      Grupo {emp.group}
+                                    </span>
+                                  </td>
+                                )}
+                                <td className="py-2 px-1.5 text-center">
+                                  <div className="flex items-center justify-center gap-1">
+                                    <select
+                                      value={
+                                        emp.workloadSource === 'cadastro'
+                                          ? 'cadastro'
+                                          : emp.workloadSource === 'custom'
+                                          ? [44, 42, 40, 36].includes(emp.customWeeklyHours || 0)
+                                            ? `custom:${emp.customWeeklyHours}`
+                                            : 'custom:other'
+                                          : 'policy'
+                                      }
+                                      onChange={(e) => {
+                                        const val = e.target.value;
+                                        if (val === 'custom:other') {
+                                          updateEmployeeWorkload(
+                                            emp.id,
+                                            `custom:${emp.customWeeklyHours || 30}`
+                                          );
+                                        } else {
+                                          updateEmployeeWorkload(emp.id, val);
+                                        }
+                                      }}
+                                      className="px-1.5 py-1 rounded-md border border-industrial-border bg-white text-[11px] font-semibold outline-none focus:border-cyber-emerald"
+                                      title="Escolher carga horária individual"
+                                    >
+                                      <option value="policy">MTE ({assign.legalMaxWeeklyHours}h)</option>
+                                      <option value="cadastro">
+                                        Func. ({emp.registeredShift?.weeklyHours || 44}h)
+                                      </option>
+                                      <option value="custom:44">44h</option>
+                                      <option value="custom:42">42h</option>
+                                      <option value="custom:40">40h</option>
+                                      <option value="custom:36">36h</option>
+                                      <option value="custom:other">Outra...</option>
+                                    </select>
+                                    {emp.workloadSource === 'custom' &&
+                                      ![44, 42, 40, 36].includes(emp.customWeeklyHours || 0) && (
+                                        <input
+                                          type="number"
+                                          min={1}
+                                          max={44}
+                                          value={emp.customWeeklyHours || 30}
+                                          onChange={(e) =>
+                                            updateEmployeeWorkload(emp.id, `custom:${e.target.value}`)
+                                          }
+                                          className="w-12 px-1 py-0.5 rounded border border-cyber-emerald text-[11px] text-center font-bold outline-none"
+                                          title="Horas semanais"
+                                        />
+                                      )}
+                                  </div>
                                 </td>
                                 {ALL_WEEKDAYS.map((d) => {
                                   const isOff = offDay === d;
@@ -1128,7 +1319,7 @@ export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedA
                         </tbody>
                         <tfoot>
                           <tr className="bg-industrial-bg border-t border-industrial-border font-semibold text-[11px]">
-                            <td colSpan={2} className="py-2.5 px-4 text-industrial-muted">
+                            <td colSpan={hasGroupDistinction ? 3 : 2} className="py-2.5 px-4 text-industrial-muted">
                               Cobertura Diária (Presentes)
                             </td>
                             {ALL_OFF_DAYS.map((d) => {
@@ -1145,9 +1336,11 @@ export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedA
                                   <div className="text-industrial-text">
                                     {presA + presB}/{employees.length}
                                   </div>
-                                  <div className="text-[10px] text-industrial-muted font-normal">
-                                    A:{presA} • B:{presB}
-                                  </div>
+                                  {hasGroupDistinction && (
+                                    <div className="text-[10px] text-industrial-muted font-normal">
+                                      A:{presA} • B:{presB}
+                                    </div>
+                                  )}
                                 </td>
                               );
                             })}
@@ -1193,22 +1386,32 @@ export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedA
                     ))}
                   </select>
                 )}
-                <div className="flex bg-industrial-bg p-1 rounded-lg border border-industrial-border text-[11px] font-semibold">
-                  {(['ALL', 'A', 'B'] as const).map((g) => (
-                    <button
-                      key={g}
-                      type="button"
-                      onClick={() => setGroupFilter(g)}
-                      className={`px-2.5 py-1 rounded-md transition-all ${
-                        groupFilter === g
-                          ? 'bg-white text-cyber-emerald shadow-sm'
-                          : 'text-industrial-muted hover:text-industrial-text'
-                      }`}
-                    >
-                      {g === 'ALL' ? 'Todos' : `Grupo ${g}`}
-                    </button>
-                  ))}
-                </div>
+                {hasGroupDistinction && (
+                  <div className="flex bg-industrial-bg p-1 rounded-lg border border-industrial-border text-[11px] font-semibold">
+                    {(['ALL', 'A', 'B'] as const).map((g) => (
+                      <button
+                        key={g}
+                        type="button"
+                        onClick={() => setGroupFilter(g)}
+                        className={`px-2.5 py-1 rounded-md transition-all ${
+                          groupFilter === g
+                            ? 'bg-white text-cyber-emerald shadow-sm'
+                            : 'text-industrial-muted hover:text-industrial-text'
+                        }`}
+                      >
+                        {g === 'ALL' ? 'Todos' : `Grupo ${g}`}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <button
+                  type="button"
+                  onClick={handleApplyUltramdTemplate}
+                  className="px-3 py-1.5 rounded-lg border border-sky-200 bg-sky-50/80 text-xs font-semibold text-sky-700 hover:bg-sky-100 flex items-center gap-1.5"
+                  title="Aplicar Observação / Regra da ULTRAMD MAIOBÃO nesta empresa"
+                >
+                  <Sparkles size={13} /> Padrão ULTRAMD MAIOBÃO
+                </button>
                 <button
                   type="button"
                   onClick={handleSyncCompanyEmployees}
@@ -1248,7 +1451,9 @@ export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedA
                         emp.workloadSource === 'cadastro'
                           ? 'cadastro'
                           : emp.workloadSource === 'custom'
-                          ? `custom:${emp.customWeeklyHours || 44}`
+                          ? [44, 42, 40, 36].includes(emp.customWeeklyHours || 0)
+                            ? `custom:${emp.customWeeklyHours}`
+                            : 'custom:other'
                           : 'policy';
                       return (
                     <tr key={emp.id} className="hover:bg-slate-50/70">
@@ -1264,48 +1469,47 @@ export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedA
                         </select>
                       </td>
                       <td className="py-2.5 px-2 text-center">
-                        <select
-                          value={workloadSelectValue}
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            setEmployees((prev) =>
-                              prev.map((item) => {
-                                if (item.id !== emp.id) return item;
-                                if (val === 'policy') {
-                                  return { ...item, workloadSource: 'policy', customWeeklyHours: undefined };
+                        <div className="flex items-center justify-center gap-1">
+                          <select
+                            value={workloadSelectValue}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              if (val === 'custom:other') {
+                                updateEmployeeWorkload(
+                                  emp.id,
+                                  `custom:${emp.customWeeklyHours || 30}`
+                                );
+                              } else {
+                                updateEmployeeWorkload(emp.id, val);
+                              }
+                            }}
+                            className="px-2 py-1 rounded-md border border-industrial-border bg-white font-medium text-[11px] outline-none"
+                          >
+                            <option value="policy">Padrão Escala (MTE)</option>
+                            <option value="cadastro">
+                              Aba Funcionários ({emp.registeredShift?.weeklyHours || 44}h)
+                            </option>
+                            <option value="custom:44">Fixo 44h</option>
+                            <option value="custom:42">Fixo 42h</option>
+                            <option value="custom:40">Fixo 40h</option>
+                            <option value="custom:36">Fixo 36h</option>
+                            <option value="custom:other">Outra (h/sem)...</option>
+                          </select>
+                          {emp.workloadSource === 'custom' &&
+                            ![44, 42, 40, 36].includes(emp.customWeeklyHours || 0) && (
+                              <input
+                                type="number"
+                                min={1}
+                                max={44}
+                                value={emp.customWeeklyHours || 30}
+                                onChange={(e) =>
+                                  updateEmployeeWorkload(emp.id, `custom:${e.target.value}`)
                                 }
-                                if (val === 'cadastro') {
-                                  const dbMatch = dbEmployees.find(
-                                    (d) =>
-                                      d.id === item.id ||
-                                      d.name.trim().toLowerCase() === item.name.trim().toLowerCase()
-                                  );
-                                  return {
-                                    ...item,
-                                    workloadSource: 'cadastro',
-                                    registeredShift: dbMatch ? extractRegisteredShift(dbMatch) : item.registeredShift,
-                                  };
-                                }
-                                const hrs = Number(val.replace('custom:', '')) || 44;
-                                return {
-                                  ...item,
-                                  workloadSource: 'custom',
-                                  customWeeklyHours: hrs,
-                                };
-                              })
-                            );
-                          }}
-                          className="px-2 py-1 rounded-md border border-industrial-border bg-white font-medium text-[11px] outline-none"
-                        >
-                          <option value="policy">Padrão Escala (MTE)</option>
-                          <option value="cadastro">
-                            Aba Funcionários ({emp.registeredShift?.weeklyHours || 44}h)
-                          </option>
-                          <option value="custom:44">Fixo 44h</option>
-                          <option value="custom:42">Fixo 42h</option>
-                          <option value="custom:40">Fixo 40h</option>
-                          <option value="custom:36">Fixo 36h</option>
-                        </select>
+                                className="w-12 px-1.5 py-1 rounded-md border border-cyber-emerald text-[11px] text-center font-bold outline-none"
+                                title="Horas semanais personalizadas"
+                              />
+                            )}
+                        </div>
                       </td>
                       <td className="py-2.5 px-2 text-center">
                         <select
@@ -1384,7 +1588,20 @@ export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedA
                         />
                       </td>
                       <td className="py-2.5 px-3 text-industrial-muted max-w-xs">
-                        {emp.note || '—'}
+                        <input
+                          type="text"
+                          value={emp.note || ''}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setEmployees((prev) =>
+                              prev.map((item) =>
+                                item.id === emp.id ? { ...item, note: val } : item
+                              )
+                            );
+                          }}
+                          placeholder={ULTRAMD_STANDARD_NOTE}
+                          className="w-full px-2 py-1 rounded-md border border-transparent hover:border-industrial-border focus:border-cyber-emerald bg-transparent focus:bg-white text-[11px] text-industrial-text outline-none"
+                        />
                       </td>
                       <td className="py-2.5 px-2 text-center">
                         <button

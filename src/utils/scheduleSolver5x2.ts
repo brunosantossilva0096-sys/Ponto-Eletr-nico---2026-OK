@@ -592,16 +592,41 @@ export function resolveShiftForWeek(
   return customShift;
 }
 
+function formatHoursMinutes(totalMinutes: number): string {
+  const h = Math.floor(totalMinutes / 60);
+  const m = Math.round(totalMinutes % 60);
+  return `${String(h).padStart(2, '0')}h${String(m).padStart(2, '0')}min`;
+}
+
+function addMinutesToHHMM(hhmm: string, mins: number): string {
+  const total = parseMinutes(hhmm) + Math.round(mins);
+  const h = Math.floor(total / 60) % 24;
+  const m = total % 60;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+
 function resolveShiftByWeeklyHours(
   emp: ScheduleEmployeeConfig,
   targetHours: number,
   offDay?: Weekday
 ): ShiftTemplate {
-  if (targetHours <= 36) {
+  if (targetHours < 40) {
+    const start = emp.group === 'B' ? '07:45' : '08:00';
+    const satMinutes = offDay === 6 ? 0 : Math.min(240, Math.round((targetHours * 60) / 6));
+    const workDays = offDay === 6 ? 5 : 4;
+    const dailyMinutes = Math.round((targetHours * 60 - satMinutes) / workDays);
+    const needBreak = dailyMinutes > 360;
+    const breakMinutes = needBreak ? 60 : 0;
+    const workEnd = addMinutesToHHMM(start, dailyMinutes + breakMinutes);
     return {
-      ...SHIFT_36H,
-      workStart: emp.group === 'B' ? '07:45' : '08:00',
-      workEnd: emp.group === 'B' ? '14:57' : '15:12',
+      workStart: start,
+      breakStart: needBreak ? '12:00' : '-',
+      breakEnd: needBreak ? '13:00' : '-',
+      workEnd,
+      saturdayStart: '07:00',
+      saturdayEnd: satMinutes > 0 ? addMinutesToHHMM('07:00', satMinutes) : '07:00',
+      dailyHoursLabel: formatHoursMinutes(dailyMinutes),
+      saturdayHoursLabel: formatHoursMinutes(satMinutes),
       weeklyHours: targetHours,
     };
   }
@@ -825,9 +850,16 @@ function runScheduleAudit(
       const weeklyHoursActual = m.weeklyMinutes / 60;
       maxWeeklySeen = Math.max(maxWeeklySeen, weeklyHoursActual);
 
-      if (m.dailyWorkMinutes <= 0 || m.weeklyMinutes > assign.legalMaxWeeklyHours * 60) {
+      const empEffectiveLimit =
+        emp.workloadSource === 'custom' && emp.customWeeklyHours
+          ? Math.min(44, emp.customWeeklyHours)
+          : emp.workloadSource === 'cadastro' && emp.registeredShift?.weeklyHours
+          ? Math.min(44, emp.registeredShift.weeklyHours)
+          : assign.legalMaxWeeklyHours;
+
+      if (m.dailyWorkMinutes <= 0 || m.weeklyMinutes > empEffectiveLimit * 60 + 1) {
         weekLimitFailures.push(
-          `${w.label} (${emp.name}): ${weeklyHoursActual.toFixed(2)}h excede limite de ${assign.legalMaxWeeklyHours}h`
+          `${w.label} (${emp.name}): ${weeklyHoursActual.toFixed(2)}h excede limite de ${empEffectiveLimit}h`
         );
       }
       if (m.dailyWorkMinutes > 6 * 60 && m.breakDuration < 60) {
@@ -941,28 +973,50 @@ function runScheduleAudit(
         : `Detectados ${collectiveViolations} conflitos de exclusão mútua.`,
   });
 
-  // 4. Cobertura mínima por grupo
-  let minPresentA = Infinity;
-  let minPresentB = Infinity;
+  // 4. Cobertura mínima (com distinção por Grupo A/B apenas se a empresa tiver ambos os grupos)
   const totalA = employees.filter((e) => e.group === 'A').length;
   const totalB = employees.filter((e) => e.group === 'B').length;
+  const hasGroupDistinction = totalA > 0 && totalB > 0;
 
-  for (const wAssign of assignments) {
-    for (const day of ALL_OFF_DAYS) {
-      const offA = employees.filter((e) => e.group === 'A' && wAssign.offDayByEmployee[e.id] === day).length;
-      const offB = employees.filter((e) => e.group === 'B' && wAssign.offDayByEmployee[e.id] === day).length;
-      minPresentA = Math.min(minPresentA, totalA - offA);
-      minPresentB = Math.min(minPresentB, totalB - offB);
+  if (hasGroupDistinction) {
+    let minPresentA = Infinity;
+    let minPresentB = Infinity;
+
+    for (const wAssign of assignments) {
+      for (const day of ALL_OFF_DAYS) {
+        const offA = employees.filter((e) => e.group === 'A' && wAssign.offDayByEmployee[e.id] === day).length;
+        const offB = employees.filter((e) => e.group === 'B' && wAssign.offDayByEmployee[e.id] === day).length;
+        minPresentA = Math.min(minPresentA, totalA - offA);
+        minPresentB = Math.min(minPresentB, totalB - offB);
+      }
     }
-  }
 
-  checks.push({
-    id: 'audit-coverage',
-    category: 'COBERTURA',
-    title: 'Equilíbrio de Cobertura por Grupo (A e B)',
-    passed: minPresentA > 0 && minPresentB > 0,
-    details: `Presença mínima diária: Grupo A = ${minPresentA}/${totalA} • Grupo B = ${minPresentB}/${totalB}.`,
-  });
+    checks.push({
+      id: 'audit-coverage',
+      category: 'COBERTURA',
+      title: 'Equilíbrio de Cobertura por Grupo (A e B)',
+      passed: minPresentA > 0 && minPresentB > 0,
+      details: `Presença mínima diária: Grupo A = ${minPresentA}/${totalA} • Grupo B = ${minPresentB}/${totalB}.`,
+    });
+  } else {
+    let minPresentTotal = Infinity;
+    for (const wAssign of assignments) {
+      for (const day of ALL_OFF_DAYS) {
+        const offTotal = employees.filter((e) => wAssign.offDayByEmployee[e.id] === day).length;
+        minPresentTotal = Math.min(minPresentTotal, employees.length - offTotal);
+      }
+    }
+    checks.push({
+      id: 'audit-coverage',
+      category: 'COBERTURA',
+      title: 'Cobertura Diária da Equipe',
+      passed: employees.length === 0 || minPresentTotal > 0,
+      details:
+        employees.length === 0
+          ? 'Nenhum colaborador configurado.'
+          : `Presença mínima diária: ${minPresentTotal}/${employees.length} colaboradores.`,
+    });
+  }
 
   return checks;
 }
