@@ -2,7 +2,7 @@
 // para geração automática de escalas 5x2 (Folga Útil Semanal + Domingo).
 
 export type Weekday = 1 | 2 | 3 | 4 | 5 | 6; // 1=Seg, 2=Ter, 3=Qua, 4=Qui, 5=Sex, 6=Sáb
-export type GroupId = 'A' | 'B';
+export type GroupId = string;
 export type ShiftProfileId = 'group' | 'iolanda' | 'bruno';
 export type WorkloadSource = 'policy' | 'cadastro' | 'custom';
 

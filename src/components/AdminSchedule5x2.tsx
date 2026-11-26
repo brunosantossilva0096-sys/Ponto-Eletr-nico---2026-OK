@@ -194,6 +194,12 @@ export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedA
   const [shift, setShift] = useState<ShiftTemplate>(initial.shift);
   const [policy, setPolicy] = useState<MtePolicyConfig>(initial.policy || DEFAULT_MTE_POLICY);
 
+  // Gerenciamento de grupos (criar, editar, excluir)
+  const [groups, setGroups] = useState<GroupId[]>(['A', 'B']);
+  const [newGroupName, setNewGroupName] = useState<GroupId>('A');
+  const [editingGroup, setEditingGroup] = useState<GroupId | null>(null);
+  const [editGroupName, setEditGroupName] = useState<GroupId>('A');
+
   // Novo colaborador
   const [newEmpName, setNewEmpName] = useState('');
   const [newEmpGroup, setNewEmpGroup] = useState<GroupId>('A');
@@ -489,6 +495,56 @@ export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedA
         : fe;
     });
     setEmployees(merged);
+  };
+
+  const handleAddGroup = () => {
+    const trimmed = newGroupName.trim().toUpperCase();
+    if (!trimmed) return;
+    if (groups.includes(trimmed as GroupId)) {
+      alert('Este grupo já existe.');
+      return;
+    }
+    setGroups((prev) => [...prev, trimmed as GroupId]);
+    setNewGroupName('A');
+  };
+
+  const handleEditGroup = (oldGroup: GroupId, newGroup: GroupId) => {
+    const trimmed = newGroup.trim().toUpperCase();
+    if (!trimmed || trimmed === oldGroup) return;
+    if (groups.includes(trimmed)) {
+      alert('Este grupo já existe.');
+      return;
+    }
+    // Atualiza grupo dos colaboradores
+    setEmployees((prev) =>
+      prev.map((e) => (e.group === oldGroup ? { ...e, group: trimmed as GroupId } : e))
+    );
+    // Atualiza regras coletivas
+    setRules((prev) =>
+      prev.map((r) => ({
+        ...r,
+        employeeIds: r.employeeIds, // IDs não mudam, apenas o label do grupo
+      }))
+    );
+    setGroups((prev) =>
+      prev.map((g) => (g === oldGroup ? (trimmed as GroupId) : g))
+    );
+    setEditingGroup(null);
+  };
+
+  const handleDeleteGroup = (groupToDelete: GroupId) => {
+    const employeesInGroup = employees.filter((e) => e.group === groupToDelete);
+    if (employeesInGroup.length > 0) {
+      alert(`Não é possível excluir o grupo ${groupToDelete}: há ${employeesInGroup.length} colaborador(es) nele.`);
+      return;
+    }
+    if (confirm(`Tem certeza que deseja excluir o grupo ${groupToDelete}?`)) {
+      setGroups((prev) => prev.filter((g) => g !== groupToDelete));
+      // Se o grupo filtrado era esse, volta para ALL
+      if (groupFilter === groupToDelete) {
+        setGroupFilter('ALL');
+      }
+    }
   };
 
   const handlePullWorkloadFromEmployeesTab = () => {
@@ -1008,7 +1064,7 @@ export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedA
                           {assign.legalMaxWeeklyHours >= 44
                             ? 'Padrão Normal em uso: 44h/sem'
                             : assign.legalMaxWeeklyHours === 42
-                            ? 'Vigência MTE (≥16/12/2026): 42h/sem • Grp A: 07h | Grp B: 07h45 | Iolanda/Bruno: 07h–17h'
+                            ? 'Vigência MTE (≥16/12/2026): 42h/sem'
                             : `Vigência MTE: ${assign.legalMaxWeeklyHours}h/sem`}
                         </span>
                       </div>
@@ -1297,7 +1353,7 @@ export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedA
                 )}
                 {hasGroupDistinction && (
                   <div className="flex bg-industrial-bg p-1 rounded-lg border border-industrial-border text-[11px] font-semibold">
-                    {(['ALL', 'A', 'B'] as const).map((g) => (
+                    {(['ALL', ...groups] as const).map((g) => (
                       <button
                         key={g}
                         type="button"
@@ -1328,6 +1384,89 @@ export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedA
                   <RotateCcw size={13} /> Restaurar Padrões
                 </button>
               </div>
+            </div>
+
+            {/* Gerenciamento de Grupos */}
+            <div className="bg-industrial-bg p-4 rounded-xl border border-industrial-border space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <h4 className="font-bold text-sm text-industrial-text flex items-center gap-1">
+                  <Building2 size={16} className="text-cyber-emerald" />
+                  Gerenciar Grupos
+                </h4>
+                <span className="text-[10px] text-industrial-muted">
+                  Crie, edite ou exclua grupos de escala
+                </span>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    placeholder="Novo grupo (ex: C)"
+                    value={newGroupName}
+                    onChange={(e) => setNewGroupName(e.target.value.toUpperCase())}
+                    className="px-2 py-1.5 rounded-md border border-industrial-border bg-white text-[11px] font-semibold outline-none focus:border-cyber-emerald flex-1"
+                    maxLength="1"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAddGroup}
+                    disabled={!newGroupName.trim() || groups.includes(newGroupName.trim().toUpperCase() as GroupId)}
+                    className="px-3 py-1.5 rounded-md bg-cyber-emerald text-white text-[11px] font-bold hover:bg-opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Adicionar
+                  </button>
+                </div>
+                {groups.map((g) => (
+                  <div key={g} className="flex items-center gap-2 bg-white p-2 rounded-md border border-industrial-border">
+                    {editingGroup === g ? (
+                      <>
+                        <input
+                          type="text"
+                          value={editGroupName}
+                          onChange={(e) => setEditGroupName(e.target.value.toUpperCase())}
+                          className="px-2 py-1 rounded-md border border-cyber-emerald bg-white text-[11px] font-semibold outline-none focus:border-cyber-emerald w-16"
+                          maxLength="1"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleEditGroup(g, editGroupName as GroupId)}
+                          className="px-2 py-1 rounded-md text-xs font-semibold text-emerald-700 hover:bg-emerald-50"
+                        >
+                          Salvar
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setEditingGroup(null)}
+                          className="px-2 py-1 rounded-md text-xs font-semibold text-industrial-muted hover:bg-slate-50"
+                        >
+                          Cancelar
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <span className="text-xs font-bold text-industrial-text">Grupo {g}</span>
+                        <button
+                          type="button"
+                          onClick={() => { setEditingGroup(g); setEditGroupName(g); }}
+                          className="px-2 py-1 rounded-md text-xs font-semibold text-industrial-muted hover:bg-slate-50"
+                        >
+                          Editar
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteGroup(g)}
+                          className="px-2 py-1 rounded-md text-xs font-semibold text-red-600 hover:bg-red-50"
+                        >
+                          Excluir
+                        </button>
+                      </>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <p className="text-[10px] text-industrial-muted">
+                Grupos com colaboradores vinculados não podem ser excluídos.
+              </p>
             </div>
 
             <div className="overflow-x-auto">
@@ -1365,8 +1504,11 @@ export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedA
                           onChange={(e) => changeEmployeeGroup(emp.id, e.target.value as GroupId)}
                           className="px-2 py-1 rounded-md border border-industrial-border bg-white font-semibold text-xs outline-none"
                         >
-                          <option value="A">Grupo A</option>
-                          <option value="B">Grupo B</option>
+                          {groups.map((g) => (
+                            <option key={g} value={g}>
+                              Grupo {g}
+                            </option>
+                          ))}
                         </select>
                       </td>
                       <td className="py-2.5 px-2 text-center">
@@ -1614,8 +1756,11 @@ export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedA
                   onChange={(e) => setIndRuleGroup(e.target.value as GroupId)}
                   className="px-2.5 py-2 rounded-lg border border-industrial-border bg-white text-xs font-semibold outline-none"
                 >
-                  <option value="A">Grupo A</option>
-                  <option value="B">Grupo B</option>
+                  {groups.map((g) => (
+                    <option key={g} value={g}>
+                      Grupo {g}
+                    </option>
+                  ))}
                 </select>
 
                 <select
@@ -1701,8 +1846,11 @@ export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedA
                 onChange={(e) => setNewEmpGroup(e.target.value as GroupId)}
                 className="px-3 py-2 rounded-lg border border-industrial-border text-xs font-semibold bg-white outline-none"
               >
-                <option value="A">Grupo A</option>
-                <option value="B">Grupo B</option>
+                {groups.map((g) => (
+                  <option key={g} value={g}>
+                    Grupo {g}
+                  </option>
+                ))}
               </select>
               <button
                 type="submit"
