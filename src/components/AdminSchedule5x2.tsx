@@ -40,6 +40,7 @@ import {
   WEEKDAY_LABELS,
   WEEKDAY_SHORT,
   Weekday,
+  WorkloadSource,
 } from '../utils/scheduleSolver5x2';
 
 const STORAGE_KEY_PREFIX = 'ponto_schedule_5x2_config_v4';
@@ -70,6 +71,20 @@ interface StoredConfig {
   policy?: MtePolicyConfig;
 }
 
+function extractRegisteredShift(dbEmp: Employee) {
+  const customMon = dbEmp.custom_schedule?.[1];
+  const customSat = dbEmp.custom_schedule?.[6];
+  return {
+    weeklyHours: dbEmp.weekly_hours || 44,
+    workStart: (dbEmp.schedule_type === 'custom' ? customMon?.work_start : dbEmp.work_start) || undefined,
+    breakStart: (dbEmp.schedule_type === 'custom' ? customMon?.break_start : dbEmp.break_start) || undefined,
+    breakEnd: (dbEmp.schedule_type === 'custom' ? customMon?.break_end : dbEmp.break_end) || undefined,
+    workEnd: (dbEmp.schedule_type === 'custom' ? customMon?.work_end : dbEmp.work_end) || undefined,
+    saturdayStart: customSat?.active ? customSat.work_start : undefined,
+    saturdayEnd: customSat?.active ? customSat.work_end : undefined,
+  };
+}
+
 function buildConfigFromDbEmployees(dbEmps: Employee[]): StoredConfig {
   if (dbEmps.length === 0) {
     return {
@@ -93,6 +108,8 @@ function buildConfigFromDbEmployees(dbEmps: Employee[]): StoredConfig {
       allowedDays: preset?.allowedDays || [1, 2, 3, 4, 5],
       alternateDays: preset?.alternateDays || false,
       shiftProfile: preset?.shiftProfile || 'group',
+      workloadSource: 'policy',
+      registeredShift: extractRegisteredShift(dbEmp),
       note: preset?.note || (dbEmp.role ? `${dbEmp.role}` : 'Colaborador cadastrado'),
     };
   });
@@ -424,9 +441,53 @@ export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedA
       const existing = employees.find(
         (e) => e.id === fe.id || e.name.trim().toLowerCase() === fe.name.trim().toLowerCase()
       );
-      return existing ? { ...existing, id: fe.id, name: fe.name } : fe;
+      return existing
+        ? { ...existing, id: fe.id, name: fe.name, registeredShift: fe.registeredShift }
+        : fe;
     });
     setEmployees(merged);
+  };
+
+  const handlePullWorkloadFromEmployeesTab = () => {
+    const source = effectiveCompanyId ? companyDbEmployees : dbEmployees;
+    if (source.length === 0) {
+      alert('Nenhum colaborador encontrado na aba Funcionários para esta empresa.');
+      return;
+    }
+
+    let matchedCount = 0;
+    const updated = employees.map((emp) => {
+      const dbMatch = source.find(
+        (d) =>
+          d.id === emp.id ||
+          d.name.trim().toLowerCase() === emp.name.trim().toLowerCase() ||
+          d.name.trim().toLowerCase().startsWith(`${emp.name.trim().toLowerCase()} `)
+      );
+      if (!dbMatch) return emp;
+      matchedCount++;
+      const reg = extractRegisteredShift(dbMatch);
+      return {
+        ...emp,
+        workloadSource: 'cadastro' as WorkloadSource,
+        registeredShift: reg,
+      };
+    });
+
+    if (matchedCount === 0) {
+      // Se nenhum dos atuais bateu, importa os colaboradores da aba Funcionários já usando a carga cadastrada
+      const fresh = buildConfigFromDbEmployees(source);
+      setEmployees(
+        fresh.employees.map((e) => ({
+          ...e,
+          workloadSource: 'cadastro' as WorkloadSource,
+        }))
+      );
+      alert(`Importados ${fresh.employees.length} colaborador(es) da aba Funcionários com suas cargas horárias cadastradas.`);
+      return;
+    }
+
+    setEmployees(updated);
+    alert(`Carga horária de ${matchedCount} colaborador(es) atualizada a partir da aba Funcionários!`);
   };
 
   const handleExportCSV = () => {
@@ -685,13 +746,32 @@ export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedA
                   )}
                 </div>
               </div>
-              <div className="px-3 py-2 rounded-lg bg-industrial-bg border border-industrial-border text-xs">
-                <span className="text-industrial-muted">Portaria MTE nº 2.041/2026: </span>
-                <span className="font-bold text-industrial-text">
-                  {policy.phaseMode === 'auto'
-                    ? '44h → 42h (16/12/2026) → 40h'
-                    : `Fixo ${policy.phaseMode}`}
-                </span>
+              <div>
+                <label className="block text-[11px] font-semibold text-industrial-muted mb-1">
+                  Carga Horária (Escala / MTE)
+                </label>
+                <div className="flex items-center gap-1.5">
+                  <select
+                    value={policy.phaseMode}
+                    onChange={(e) =>
+                      setPolicy({ ...policy, phaseMode: e.target.value as MteTransitionPhase })
+                    }
+                    className="px-3 py-2 rounded-lg border border-industrial-border text-sm font-medium bg-industrial-bg outline-none focus:border-cyber-emerald"
+                  >
+                    <option value="auto">Automático MTE (44h → 42h → 40h)</option>
+                    <option value="44h">44h semanais</option>
+                    <option value="42h">42h semanais</option>
+                    <option value="40h">40h semanais</option>
+                  </select>
+                  <button
+                    type="button"
+                    onClick={handlePullWorkloadFromEmployeesTab}
+                    className="px-2.5 py-2 rounded-lg border border-emerald-200 bg-emerald-50 text-xs font-semibold text-emerald-700 hover:bg-emerald-100 whitespace-nowrap"
+                    title="Puxar carga horária e horários cadastrados na aba Funcionários"
+                  >
+                    Puxar de Funcionários
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -1152,6 +1232,7 @@ export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedA
                   <tr className="border-b border-industrial-border text-industrial-muted bg-industrial-bg">
                     <th className="text-left py-2.5 px-3 font-semibold">Colaborador</th>
                     <th className="text-center py-2.5 px-2 font-semibold">Grupo</th>
+                    <th className="text-center py-2.5 px-2 font-semibold">Carga Horária</th>
                     <th className="text-center py-2.5 px-2 font-semibold">Perfil 42h</th>
                     <th className="text-center py-2.5 px-2 font-semibold">Dias Permitidos (Seg–Sáb)</th>
                     <th className="text-center py-2.5 px-2 font-semibold">Alternar</th>
@@ -1162,7 +1243,14 @@ export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedA
                 <tbody className="divide-y divide-industrial-border/60">
                   {employees
                     .filter((emp) => groupFilter === 'ALL' || emp.group === groupFilter)
-                    .map((emp) => (
+                    .map((emp) => {
+                      const workloadSelectValue =
+                        emp.workloadSource === 'cadastro'
+                          ? 'cadastro'
+                          : emp.workloadSource === 'custom'
+                          ? `custom:${emp.customWeeklyHours || 44}`
+                          : 'policy';
+                      return (
                     <tr key={emp.id} className="hover:bg-slate-50/70">
                       <td className="py-2.5 px-3 font-bold text-industrial-text">{emp.name}</td>
                       <td className="py-2.5 px-2 text-center">
@@ -1173,6 +1261,50 @@ export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedA
                         >
                           <option value="A">Grupo A</option>
                           <option value="B">Grupo B</option>
+                        </select>
+                      </td>
+                      <td className="py-2.5 px-2 text-center">
+                        <select
+                          value={workloadSelectValue}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setEmployees((prev) =>
+                              prev.map((item) => {
+                                if (item.id !== emp.id) return item;
+                                if (val === 'policy') {
+                                  return { ...item, workloadSource: 'policy', customWeeklyHours: undefined };
+                                }
+                                if (val === 'cadastro') {
+                                  const dbMatch = dbEmployees.find(
+                                    (d) =>
+                                      d.id === item.id ||
+                                      d.name.trim().toLowerCase() === item.name.trim().toLowerCase()
+                                  );
+                                  return {
+                                    ...item,
+                                    workloadSource: 'cadastro',
+                                    registeredShift: dbMatch ? extractRegisteredShift(dbMatch) : item.registeredShift,
+                                  };
+                                }
+                                const hrs = Number(val.replace('custom:', '')) || 44;
+                                return {
+                                  ...item,
+                                  workloadSource: 'custom',
+                                  customWeeklyHours: hrs,
+                                };
+                              })
+                            );
+                          }}
+                          className="px-2 py-1 rounded-md border border-industrial-border bg-white font-medium text-[11px] outline-none"
+                        >
+                          <option value="policy">Padrão Escala (MTE)</option>
+                          <option value="cadastro">
+                            Aba Funcionários ({emp.registeredShift?.weeklyHours || 44}h)
+                          </option>
+                          <option value="custom:44">Fixo 44h</option>
+                          <option value="custom:42">Fixo 42h</option>
+                          <option value="custom:40">Fixo 40h</option>
+                          <option value="custom:36">Fixo 36h</option>
                         </select>
                       </td>
                       <td className="py-2.5 px-2 text-center">
@@ -1265,7 +1397,8 @@ export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedA
                         </button>
                       </td>
                     </tr>
-                  ))}
+                      );
+                    })}
                 </tbody>
               </table>
             </div>

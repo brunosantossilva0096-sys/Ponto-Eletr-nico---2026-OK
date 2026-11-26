@@ -4,6 +4,17 @@
 export type Weekday = 1 | 2 | 3 | 4 | 5 | 6; // 1=Seg, 2=Ter, 3=Qua, 4=Qui, 5=Sex, 6=Sáb
 export type GroupId = 'A' | 'B';
 export type ShiftProfileId = 'group' | 'iolanda' | 'bruno';
+export type WorkloadSource = 'policy' | 'cadastro' | 'custom';
+
+export interface RegisteredShiftInfo {
+  weeklyHours?: number;
+  workStart?: string;
+  breakStart?: string;
+  breakEnd?: string;
+  workEnd?: string;
+  saturdayStart?: string;
+  saturdayEnd?: string;
+}
 
 export const WEEKDAY_LABELS: Record<Weekday, string> = {
   1: 'Segunda',
@@ -33,6 +44,9 @@ export interface ScheduleEmployeeConfig {
   allowedDays: Weekday[];
   alternateDays: boolean; // Ex: Cris alterna entre Terça e Sexta entre semanas
   shiftProfile?: ShiftProfileId; // Permite escolher livremente o padrão de horário para qualquer colaborador
+  workloadSource?: WorkloadSource; // 'policy' (MTE/Escala), 'cadastro' (Aba Funcionários) ou 'custom'
+  customWeeklyHours?: number; // Ex: 44, 42, 40, 36
+  registeredShift?: RegisteredShiftInfo; // Horário/carga importados da aba Funcionários
   note?: string;
 }
 
@@ -147,6 +161,18 @@ export const SHIFT_40H: ShiftTemplate = {
   dailyHoursLabel: '08h00min',
   saturdayHoursLabel: '00h00min',
   weeklyHours: 40,
+};
+
+export const SHIFT_36H: ShiftTemplate = {
+  workStart: '08:00',
+  breakStart: '12:00',
+  breakEnd: '13:00',
+  workEnd: '15:12', // 6h12/dia × 5 dias = 31h + Sáb 5h = 36h
+  saturdayStart: '07:00',
+  saturdayEnd: '12:00',
+  dailyHoursLabel: '06h12min',
+  saturdayHoursLabel: '05h00min',
+  weeklyHours: 36,
 };
 
 export const DEFAULT_SHIFT_TEMPLATE: ShiftTemplate = SHIFT_42H_GROUP_A;
@@ -566,32 +592,27 @@ export function resolveShiftForWeek(
   return customShift;
 }
 
-/**
- * Seleciona o turno específico de cada colaborador na semana:
- * - Antes de 16/12/2026 (44h): Padrão normal de 44h em uso
- * - A partir de 16/12/2026 (42h):
- *   - Sábado: todo mundo entra às 07:00 (Grupo A/B 07:00–12:00; perfil Iolanda/Bruno 07:00–13:00)
- *   - Se o colaborador folgar no Sábado (offDay === 6), trabalha Seg–Sex (5 dias) com carga de 8h24/dia = 42h00
- *   - Caso contrário (folga Seg–Sex), trabalha 4 dias úteis + Sábado = 42h00
- */
-export function resolveShiftForEmployeeInWeek(
+function resolveShiftByWeeklyHours(
   emp: ScheduleEmployeeConfig,
-  legalMaxHours: number,
-  customShift: ShiftTemplate,
-  policy: MtePolicyConfig,
+  targetHours: number,
   offDay?: Weekday
 ): ShiftTemplate {
-  if (policy.phaseMode !== 'auto') {
-    return customShift;
+  if (targetHours <= 36) {
+    return {
+      ...SHIFT_36H,
+      workStart: emp.group === 'B' ? '07:45' : '08:00',
+      workEnd: emp.group === 'B' ? '14:57' : '15:12',
+      weeklyHours: targetHours,
+    };
   }
-  if (legalMaxHours <= 40) return SHIFT_40H;
-  if (legalMaxHours >= 44) {
+  if (targetHours <= 40) return SHIFT_40H;
+  if (targetHours >= 44) {
     if (offDay === 6) {
       return {
         ...SHIFT_44H,
         workStart: emp.group === 'B' ? '07:45' : '08:00',
-        breakStart: emp.group === 'B' ? '12:00' : '12:00',
-        breakEnd: emp.group === 'B' ? '13:12' : '13:12',
+        breakStart: '12:00',
+        breakEnd: '13:12',
         workEnd: emp.group === 'B' ? '17:45' : '18:00',
         dailyHoursLabel: '08h48min',
       };
@@ -626,7 +647,7 @@ export function resolveShiftForEmployeeInWeek(
         };
   }
 
-  // Vigência 42h (a partir de 16/12/2026) — perfil configurável por colaborador
+  // Vigência 42h — perfil configurável por colaborador
   const profile =
     emp.shiftProfile ||
     (emp.id === 'iolanda' || emp.name.trim().toLowerCase() === 'iolanda'
@@ -638,6 +659,45 @@ export function resolveShiftForEmployeeInWeek(
   if (profile === 'iolanda') return SHIFT_42H_IOLANDA;
   if (profile === 'bruno') return SHIFT_42H_BRUNO;
   return emp.group === 'B' ? SHIFT_42H_GROUP_B : SHIFT_42H_GROUP_A;
+}
+
+/**
+ * Seleciona o turno específico de cada colaborador na semana:
+ * - Se `workloadSource === 'cadastro'`, utiliza carga e horários importados da aba Funcionários.
+ * - Se `workloadSource === 'custom'`, utiliza `customWeeklyHours` configurado para o colaborador.
+ * - Caso contrário (`'policy'`), segue o limite da Escala / Portaria MTE nº 2.041/2026.
+ */
+export function resolveShiftForEmployeeInWeek(
+  emp: ScheduleEmployeeConfig,
+  legalMaxHours: number,
+  _customShift: ShiftTemplate,
+  _policy: MtePolicyConfig,
+  offDay?: Weekday
+): ShiftTemplate {
+  if (emp.workloadSource === 'cadastro' && emp.registeredShift) {
+    const reg = emp.registeredShift;
+    const weekly = reg.weeklyHours || 44;
+    if (reg.workStart && reg.workEnd) {
+      return {
+        workStart: reg.workStart,
+        breakStart: reg.breakStart || '12:00',
+        breakEnd: reg.breakEnd || '13:00',
+        workEnd: reg.workEnd,
+        saturdayStart: reg.saturdayStart || '07:00',
+        saturdayEnd: reg.saturdayEnd || '12:00',
+        dailyHoursLabel: `${weekly}h/sem`,
+        saturdayHoursLabel: reg.saturdayEnd ? 'Sáb cadastrado' : '05h00min',
+        weeklyHours: weekly,
+      };
+    }
+    return resolveShiftByWeeklyHours(emp, weekly, offDay);
+  }
+
+  if (emp.workloadSource === 'custom' && emp.customWeeklyHours) {
+    return resolveShiftByWeeklyHours(emp, emp.customWeeklyHours, offDay);
+  }
+
+  return resolveShiftByWeeklyHours(emp, legalMaxHours, offDay);
 }
 
 /**
