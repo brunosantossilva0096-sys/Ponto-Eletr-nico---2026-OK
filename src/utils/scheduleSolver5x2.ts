@@ -338,20 +338,21 @@ export function buildMonthWeeks(year: number, monthIndex0: number): WeekRange[] 
 
   while (cursor <= lastDayOfMonth) {
     const monday = new Date(cursor);
-    const sunday = new Date(cursor);
-    sunday.setDate(monday.getDate() + 6);
+    // Sábado = monday + 5 dias; Domingo = monday + 6 dias (usando monday.getFullYear() para não errar na virada de ano)
+    const saturday = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + 5);
+    const sunday = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + 6);
 
     const datesByDow: Record<number, string> = {};
     for (let offset = 0; offset < 7; offset++) {
-      const d = new Date(monday);
-      d.setDate(monday.getDate() + offset);
-      const dow = d.getDay(); // 1..6, 0
+      const d = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + offset);
+      const dow = d.getDay(); // 0=Dom, 1=Seg...6=Sab
       datesByDow[dow] = formatIsoDate(d);
     }
 
+    // Label mostra Seg a Sáb (período de trabalho/folga útil)
     weeks.push({
       weekIndex: idx,
-      label: `Semana ${idx + 1} (${formatBrShort(monday)} a ${formatBrShort(sunday)})`,
+      label: `Semana ${idx + 1} (${formatBrShort(monday)} a ${formatBrShort(saturday)})`,
       mondayDate: monday,
       sundayDate: sunday,
       datesByDow,

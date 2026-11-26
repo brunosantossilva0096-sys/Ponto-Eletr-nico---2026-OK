@@ -539,7 +539,7 @@ export const AdminPanel = ({ loggedAdmin, onLogout }: { loggedAdmin: AdminUser, 
         {activeTab === 'holidays' && <AdminHolidays />}
         {activeTab === 'absences' && <AdminAbsences loggedAdmin={loggedAdmin} />}
         {activeTab === 'timebank' && <AdminTimeBank loggedAdmin={loggedAdmin} />}
-        {activeTab === 'schedule5x2' && <AdminSchedule5x2 />}
+        {activeTab === 'schedule5x2' && <AdminSchedule5x2 loggedAdmin={loggedAdmin} />}
         {activeTab === 'admins' && <AdminUsersTab loggedAdmin={loggedAdmin} />}
         {activeTab === 'employees' && loggedAdmin.role !== 'convencional' && (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">

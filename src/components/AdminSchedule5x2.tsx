@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import jsPDF from 'jspdf';
+import { supabase } from '../supabaseClient';
+import { AdminUser, Company, Employee } from '../types';
 import {
   Calendar,
   Lock,
@@ -14,6 +16,7 @@ import {
   Users,
   Clock,
   Sparkles,
+  Building2,
 } from 'lucide-react';
 import {
   ALL_OFF_DAYS,
@@ -39,7 +42,11 @@ import {
   Weekday,
 } from '../utils/scheduleSolver5x2';
 
-const STORAGE_KEY = 'ponto_schedule_5x2_config_v4';
+const STORAGE_KEY_PREFIX = 'ponto_schedule_5x2_config_v4';
+
+function getCompanyStorageKey(companyId: string): string {
+  return `${STORAGE_KEY_PREFIX}_${companyId || 'all'}`;
+}
 
 const MONTH_NAMES = [
   'Janeiro',
@@ -63,9 +70,45 @@ interface StoredConfig {
   policy?: MtePolicyConfig;
 }
 
-function loadStoredConfig(): StoredConfig {
+function buildConfigFromDbEmployees(dbEmps: Employee[]): StoredConfig {
+  if (dbEmps.length === 0) {
+    return {
+      employees: [],
+      rules: [],
+      shift: DEFAULT_SHIFT_TEMPLATE,
+      policy: DEFAULT_MTE_POLICY,
+    };
+  }
+
+  const mapped: ScheduleEmployeeConfig[] = dbEmps.map((dbEmp) => {
+    const normName = dbEmp.name.trim().toLowerCase();
+    const preset = DEFAULT_SCHEDULE_EMPLOYEES.find((d) => {
+      const pName = d.name.toLowerCase();
+      return normName === pName || normName.startsWith(`${pName} `);
+    });
+    return {
+      id: dbEmp.id,
+      name: dbEmp.name,
+      group: preset?.group || 'A',
+      allowedDays: preset?.allowedDays || [1, 2, 3, 4, 5],
+      alternateDays: preset?.alternateDays || false,
+      shiftProfile: preset?.shiftProfile || 'group',
+      note: preset?.note || (dbEmp.role ? `${dbEmp.role}` : 'Colaborador cadastrado'),
+    };
+  });
+
+  return {
+    employees: mapped,
+    rules: [],
+    shift: DEFAULT_SHIFT_TEMPLATE,
+    policy: DEFAULT_MTE_POLICY,
+  };
+}
+
+function loadStoredConfig(companyId: string, dbEmpsForCompany?: Employee[]): StoredConfig {
+  const key = getCompanyStorageKey(companyId);
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(key) || (!companyId ? localStorage.getItem(STORAGE_KEY_PREFIX) : null);
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed.employees) && Array.isArray(parsed.rules) && parsed.shift) {
@@ -78,6 +121,11 @@ function loadStoredConfig(): StoredConfig {
   } catch {
     // Ignora erro de parse e usa padrões
   }
+
+  if (companyId && dbEmpsForCompany) {
+    return buildConfigFromDbEmployees(dbEmpsForCompany);
+  }
+
   return {
     employees: DEFAULT_SCHEDULE_EMPLOYEES,
     rules: DEFAULT_COLLECTIVE_RULES,
@@ -86,9 +134,44 @@ function loadStoredConfig(): StoredConfig {
   };
 }
 
-export const AdminSchedule5x2: React.FC = () => {
-  const initial = useMemo(() => loadStoredConfig(), []);
+export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedAdmin }) => {
   const now = new Date();
+
+  // Empresa e colaboradores cadastrados (mesmo padrão da aba Relatórios)
+  const [companies, setCompanies] = useState<Company[]>([]);
+  const [dbEmployees, setDbEmployees] = useState<Employee[]>([]);
+  const [dbLoaded, setDbLoaded] = useState(false);
+  const [selectedCompanyId, setSelectedCompanyId] = useState<string>(loggedAdmin.company_id || '');
+
+  const effectiveCompanyId = loggedAdmin.company_id || selectedCompanyId;
+
+  const initial = useMemo(() => loadStoredConfig(effectiveCompanyId), [effectiveCompanyId]);
+
+  useEffect(() => {
+    const fetchCompanyData = async () => {
+      let compQuery = supabase.from('companies').select('*').order('name');
+      let empQuery = supabase.from('employees').select('*, companies(*)').order('name');
+      if (loggedAdmin.company_id) {
+        compQuery = compQuery.eq('id', loggedAdmin.company_id);
+        empQuery = empQuery.eq('company_id', loggedAdmin.company_id);
+      }
+      const [{ data: compData }, { data: empData }] = await Promise.all([compQuery, empQuery]);
+      if (compData) setCompanies(compData);
+      if (empData) setDbEmployees(empData);
+      setDbLoaded(true);
+    };
+    fetchCompanyData();
+  }, [loggedAdmin.company_id]);
+
+  const activeCompany = useMemo(
+    () => companies.find((c) => c.id === effectiveCompanyId) || null,
+    [companies, effectiveCompanyId]
+  );
+
+  const companyDbEmployees = useMemo(() => {
+    if (!effectiveCompanyId) return dbEmployees;
+    return dbEmployees.filter((e) => e.company_id === effectiveCompanyId);
+  }, [dbEmployees, effectiveCompanyId]);
 
   const [subTab, setSubTab] = useState<'schedule' | 'conditions' | 'audit'>('schedule');
   const [selectedYear, setSelectedYear] = useState<number>(now.getFullYear());
@@ -123,16 +206,28 @@ export const AdminSchedule5x2: React.FC = () => {
   const [newRuleEmpIds, setNewRuleEmpIds] = useState<string[]>([]);
   const [newRuleMaxOff, setNewRuleMaxOff] = useState<number>(1);
 
+  // Recarrega configuração da empresa selecionada quando muda a empresa ou os dados do banco carregam
+  useEffect(() => {
+    if (!dbLoaded && effectiveCompanyId) return;
+    const cfg = loadStoredConfig(effectiveCompanyId, companyDbEmployees);
+    setEmployees(cfg.employees);
+    setRules(cfg.rules);
+    setShift(cfg.shift);
+    setPolicy(cfg.policy || DEFAULT_MTE_POLICY);
+    setIndRuleEmpId(cfg.employees[0]?.id || '');
+    setNewRuleEmpIds([]);
+  }, [effectiveCompanyId, dbLoaded]);
+
   useEffect(() => {
     try {
       localStorage.setItem(
-        STORAGE_KEY,
+        getCompanyStorageKey(effectiveCompanyId),
         JSON.stringify({ employees, rules, shift, policy })
       );
     } catch {
       // Ignora erro de quota
     }
-  }, [employees, rules, shift, policy]);
+  }, [effectiveCompanyId, employees, rules, shift, policy]);
 
   const solverResult = useMemo(() => {
     return generateAndAuditSchedule(selectedYear, selectedMonth, employees, rules, shift, policy);
@@ -246,12 +341,37 @@ export const AdminSchedule5x2: React.FC = () => {
   };
 
   const handleRestoreDefaults = () => {
-    if (confirm('Deseja restaurar todas as condições individuais, coletivas e a política MTE 2.041/2026 para o padrão original?')) {
-      setEmployees(DEFAULT_SCHEDULE_EMPLOYEES);
-      setRules(DEFAULT_COLLECTIVE_RULES);
-      setShift(DEFAULT_SHIFT_TEMPLATE);
-      setPolicy(DEFAULT_MTE_POLICY);
+    if (confirm('Deseja restaurar todas as condições individuais, coletivas e a política MTE 2.041/2026 para o padrão original desta empresa?')) {
+      if (effectiveCompanyId && companyDbEmployees.length > 0) {
+        const fresh = buildConfigFromDbEmployees(companyDbEmployees);
+        setEmployees(fresh.employees);
+        setRules(fresh.rules);
+        setShift(fresh.shift);
+        setPolicy(fresh.policy || DEFAULT_MTE_POLICY);
+      } else {
+        setEmployees(DEFAULT_SCHEDULE_EMPLOYEES);
+        setRules(DEFAULT_COLLECTIVE_RULES);
+        setShift(DEFAULT_SHIFT_TEMPLATE);
+        setPolicy(DEFAULT_MTE_POLICY);
+      }
     }
+  };
+
+  const handleSyncCompanyEmployees = () => {
+    const source = effectiveCompanyId ? companyDbEmployees : dbEmployees;
+    if (source.length === 0) {
+      alert('Nenhum colaborador cadastrado no banco para esta empresa.');
+      return;
+    }
+    const fresh = buildConfigFromDbEmployees(source);
+    // Preserva regras individuais já configuradas para colaboradores existentes (por id ou nome)
+    const merged = fresh.employees.map((fe) => {
+      const existing = employees.find(
+        (e) => e.id === fe.id || e.name.trim().toLowerCase() === fe.name.trim().toLowerCase()
+      );
+      return existing ? { ...existing, id: fe.id, name: fe.name } : fe;
+    });
+    setEmployees(merged);
   };
 
   const handleExportCSV = () => {
@@ -288,6 +408,7 @@ export const AdminSchedule5x2: React.FC = () => {
 
   const handleExportPDF = () => {
     if (!solverResult.success) return;
+    const companyLabel = activeCompany ? activeCompany.name : 'Todas as Empresas';
     const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
     doc.setFontSize(14);
     doc.text(
@@ -297,7 +418,7 @@ export const AdminSchedule5x2: React.FC = () => {
     );
     doc.setFontSize(9);
     doc.text(
-      `Portaria MTE nº 2.041/2026 (44h → 42h em 16/12/2026 → 40h) | Auditoria: ${allAuditsPassed ? 'APROVADA' : 'COM ALERTAS'}`,
+      `Empresa: ${companyLabel}${activeCompany?.cnpj ? ` (CNPJ: ${activeCompany.cnpj})` : ''} | Portaria MTE nº 2.041/2026 (44h → 42h em 16/12/2026 → 40h) | Auditoria: ${allAuditsPassed ? 'APROVADA' : 'COM ALERTAS'}`,
       14,
       21
     );
@@ -375,7 +496,7 @@ export const AdminSchedule5x2: React.FC = () => {
           <div className="flex items-center gap-2.5 flex-wrap">
             <h2 className="text-xl font-bold text-industrial-text flex items-center gap-2">
               <Sparkles className="text-cyber-emerald" size={20} />
-              Controle de Jornada 5x2 — Solver CSP
+              Controle de Jornada 5x2
             </h2>
             <span
               className={`text-xs font-bold px-2.5 py-1 rounded-full flex items-center gap-1 ${
@@ -441,6 +562,23 @@ export const AdminSchedule5x2: React.FC = () => {
           {/* Barra de controles */}
           <div className="bg-white p-4 rounded-2xl shadow-sm border border-industrial-border flex flex-wrap items-center justify-between gap-4">
             <div className="flex items-center gap-3 flex-wrap">
+              {/* Filtro de empresa (igual à aba Relatórios) */}
+              <div>
+                <label className="block text-[11px] font-semibold text-industrial-muted mb-1 flex items-center gap-1">
+                  <Building2 size={12} /> Empresa
+                </label>
+                <select
+                  value={effectiveCompanyId}
+                  onChange={(e) => setSelectedCompanyId(e.target.value)}
+                  disabled={Boolean(loggedAdmin.company_id)}
+                  className="px-3 py-2 rounded-lg border border-industrial-border text-sm font-medium bg-industrial-bg outline-none focus:border-cyber-emerald disabled:opacity-75 disabled:cursor-not-allowed"
+                >
+                  {!loggedAdmin.company_id && <option value="">Todas as Empresas</option>}
+                  {companies.map((c) => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+              </div>
               <div>
                 <label className="block text-[11px] font-semibold text-industrial-muted mb-1">
                   Mês de Referência
@@ -545,7 +683,7 @@ export const AdminSchedule5x2: React.FC = () => {
                         </span>
                       </div>
                       <span className="text-[11px] font-medium text-industrial-muted">
-                        Solver CSP: {assign.backtracks} backtrack(s) • Equipe: {employees.length} colaboradores
+                        Equipe: {employees.length} colaboradores{activeCompany ? ` • ${activeCompany.name}` : ''}
                       </span>
                     </div>
 
@@ -701,6 +839,19 @@ export const AdminSchedule5x2: React.FC = () => {
                 </p>
               </div>
               <div className="flex items-center gap-2 flex-wrap">
+                {!loggedAdmin.company_id && companies.length > 0 && (
+                  <select
+                    value={effectiveCompanyId}
+                    onChange={(e) => setSelectedCompanyId(e.target.value)}
+                    className="px-2.5 py-1.5 rounded-lg border border-industrial-border text-xs font-medium bg-industrial-bg outline-none focus:border-cyber-emerald"
+                    title="Selecionar empresa"
+                  >
+                    <option value="">Todas as Empresas</option>
+                    {companies.map((c) => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                )}
                 <div className="flex bg-industrial-bg p-1 rounded-lg border border-industrial-border text-[11px] font-semibold">
                   {(['ALL', 'A', 'B'] as const).map((g) => (
                     <button
@@ -717,6 +868,14 @@ export const AdminSchedule5x2: React.FC = () => {
                     </button>
                   ))}
                 </div>
+                <button
+                  type="button"
+                  onClick={handleSyncCompanyEmployees}
+                  className="px-3 py-1.5 rounded-lg border border-emerald-200 bg-emerald-50/70 text-xs font-semibold text-emerald-700 hover:bg-emerald-100 flex items-center gap-1.5"
+                  title="Importar/sincronizar colaboradores cadastrados nesta empresa"
+                >
+                  <RefreshCw size={13} /> Sincronizar Cadastro
+                </button>
                 <button
                   onClick={handleRestoreDefaults}
                   className="px-3 py-1.5 rounded-lg border border-industrial-border text-xs font-semibold text-industrial-muted hover:text-industrial-text hover:border-industrial-text flex items-center gap-1.5"
@@ -1314,7 +1473,7 @@ export const AdminSchedule5x2: React.FC = () => {
                 Relatório de Auditoria Automática ({MONTH_NAMES[selectedMonth]}/{selectedYear})
               </h3>
               <span className="text-xs text-industrial-muted flex items-center gap-1">
-                <RefreshCw size={12} /> Total de backtracks do Solver: {solverResult.totalBacktracks}
+                <ShieldCheck size={12} className="text-cyber-emerald" /> Auditoria automática • {employees.length} colaboradores
               </span>
             </div>
 
