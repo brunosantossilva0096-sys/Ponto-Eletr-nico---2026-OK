@@ -464,6 +464,41 @@ export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedA
     setNewRuleMinPresent(0);
   };
 
+  const handleApplyStandardRules = () => {
+    const standardRules = [
+      {
+        name: 'Par A: Nunca folgam juntos',
+        employeeIds: [] as string[],
+        maxOffSameDay: 1,
+        minPresent: undefined,
+        enabled: true,
+      },
+      {
+        name: 'Grupo de 3: Apenas 1 folga por dia útil',
+        employeeIds: [] as string[],
+        maxOffSameDay: 1,
+        minPresent: undefined,
+        enabled: true,
+      },
+      {
+        name: 'Par B: Não podem folgar juntos',
+        employeeIds: [] as string[],
+        maxOffSameDay: 1,
+        minPresent: undefined,
+        enabled: true,
+      },
+      {
+        name: 'Par C: Não podem folgar juntos',
+        employeeIds: [] as string[],
+        maxOffSameDay: 1,
+        minPresent: undefined,
+        enabled: true,
+      },
+    ];
+    setRules((prev) => [...prev, ...standardRules]);
+    alert('Regras coletivas padrão aplicadas. Selecione os colaboradores em cada regra.');
+  };
+
   const handleRestoreDefaults = () => {
     if (confirm('Deseja restaurar todas as condições individuais, coletivas e a política MTE 2.041/2026 para o padrão original?')) {
       if (effectiveCompanyId && companyDbEmployees.length > 0) {
@@ -1728,6 +1763,61 @@ export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedA
                   >
                     Preset: Ter/Sex (Alterna)
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIndRuleDays([2]);
+                      setIndRuleAlternate(false);
+                      setIndRuleNote('Folga fixa: Terça-feira');
+                    }}
+                    className="px-2 py-1 rounded-md bg-white text-industrial-text border border-industrial-border text-[10px] font-semibold hover:border-cyber-emerald"
+                  >
+                    Preset: Folga Fixa Terça
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIndRuleDays([3]);
+                      setIndRuleAlternate(false);
+                      setIndRuleNote('Folga fixa: Quarta-feira');
+                    }}
+                    className="px-2 py-1 rounded-md bg-white text-industrial-text border border-industrial-border text-[10px] font-semibold hover:border-cyber-emerald"
+                  >
+                    Preset: Folga Fixa Quarta
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIndRuleDays([5]);
+                      setIndRuleAlternate(false);
+                      setIndRuleNote('Folga fixa: Sexta-feira');
+                    }}
+                    className="px-2 py-1 rounded-md bg-white text-industrial-text border border-industrial-border text-[10px] font-semibold hover:border-cyber-emerald"
+                  >
+                    Preset: Folga Fixa Sexta
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIndRuleDays([1, 3, 4, 5]);
+                      setIndRuleAlternate(false);
+                      setIndRuleNote('Não folga na Terça-feira');
+                    }}
+                    className="px-2 py-1 rounded-md bg-white text-industrial-text border border-industrial-border text-[10px] font-semibold hover:border-cyber-emerald"
+                  >
+                    Preset: Não Folga Terça
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIndRuleDays([1, 2, 3, 4]);
+                      setIndRuleAlternate(false);
+                      setIndRuleNote('Não folga na Sexta-feira');
+                    }}
+                    className="px-2 py-1 rounded-md bg-white text-industrial-text border border-industrial-border text-[10px] font-semibold hover:border-cyber-emerald"
+                  >
+                    Preset: Não Folga Sexta
+                  </button>
                 </div>
               </div>
 
@@ -1926,6 +2016,15 @@ export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedA
                 </div>
               ))}
             </div>
+
+            {/* Botão Aplicar Regras Padrão */}
+            <button
+              type="button"
+              onClick={handleApplyStandardRules}
+              className="w-full px-3 py-2 rounded-lg border border-cyber-emerald bg-cyber-emerald/10 text-xs font-semibold text-cyber-emerald hover:bg-cyber-emerald/20 flex items-center justify-center gap-2"
+            >
+              <Sparkles size={14} /> Aplicar Regras Padrão (ULTRAMED MAIOBÃO)
+            </button>
 
             {/* Form Nova Regra Coletiva */}
             <form
