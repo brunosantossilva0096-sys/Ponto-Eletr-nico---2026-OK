@@ -85,118 +85,37 @@ function extractRegisteredShift(dbEmp: Employee) {
   };
 }
 
-const ULTRAMD_STANDARD_NOTE =
-  'Distribuído entre Seg e Sex obedecendo travas coletivas e equilíbrio da equipe';
-
-function getUltramdMaiobaoTemplate(companiesList: Company[]): StoredConfig {
-  const ultramdComp = companiesList.find((c) => /ultramd.*maiob|maiob/i.test(c.name));
-  const candidateKeys = [
-    ultramdComp ? getCompanyStorageKey(ultramdComp.id) : null,
-    getCompanyStorageKey(''),
-    STORAGE_KEY_PREFIX,
-  ].filter(Boolean) as string[];
-
-  for (const key of candidateKeys) {
-    try {
-      const raw = localStorage.getItem(key);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed.employees) && parsed.employees.length > 0 && parsed.shift) {
-          return {
-            employees: parsed.employees,
-            rules: Array.isArray(parsed.rules) ? parsed.rules : DEFAULT_COLLECTIVE_RULES,
-            shift: parsed.shift,
-            policy: parsed.policy || DEFAULT_MTE_POLICY,
-          };
-        }
-      }
-    } catch {
-      // Ignora erro e tenta próximo fallback
-    }
-  }
-
-  return {
-    employees: DEFAULT_SCHEDULE_EMPLOYEES,
-    rules: DEFAULT_COLLECTIVE_RULES,
-    shift: DEFAULT_SHIFT_TEMPLATE,
-    policy: DEFAULT_MTE_POLICY,
-  };
-}
-
-function buildConfigFromDbEmployees(
-  dbEmps: Employee[],
-  template?: StoredConfig
-): StoredConfig {
-  const baseTemplate = template || {
-    employees: DEFAULT_SCHEDULE_EMPLOYEES,
-    rules: DEFAULT_COLLECTIVE_RULES,
-    shift: DEFAULT_SHIFT_TEMPLATE,
-    policy: DEFAULT_MTE_POLICY,
-  };
-
+function buildConfigFromDbEmployees(dbEmps: Employee[]): StoredConfig {
   if (dbEmps.length === 0) {
     return {
       employees: [],
       rules: [],
-      shift: baseTemplate.shift,
-      policy: baseTemplate.policy || DEFAULT_MTE_POLICY,
+      shift: DEFAULT_SHIFT_TEMPLATE,
+      policy: DEFAULT_MTE_POLICY,
     };
   }
 
-  const mapped: ScheduleEmployeeConfig[] = dbEmps.map((dbEmp) => {
-    const normName = dbEmp.name.trim().toLowerCase();
-    const preset = baseTemplate.employees.find((d) => {
-      const pName = d.name.toLowerCase();
-      return normName === pName || normName.startsWith(`${pName} `);
-    });
-    return {
-      id: dbEmp.id,
-      name: dbEmp.name,
-      group: preset?.group || 'A',
-      allowedDays: preset?.allowedDays || [1, 2, 3, 4, 5],
-      alternateDays: preset?.alternateDays || false,
-      shiftProfile: preset?.shiftProfile || 'group',
-      workloadSource: preset?.workloadSource || 'policy',
-      customWeeklyHours: preset?.customWeeklyHours,
-      registeredShift: extractRegisteredShift(dbEmp),
-      note: preset?.note || ULTRAMD_STANDARD_NOTE,
-    };
-  });
-
-  // Adapta regras coletivas do template para os IDs desta empresa caso haja correspondência por nome
-  const mappedRules: CollectiveRule[] = baseTemplate.rules
-    .map((rule) => {
-      const matchedIds = rule.employeeIds
-        .map((origId) => {
-          const origEmp = baseTemplate.employees.find((e) => e.id === origId);
-          if (!origEmp) return null;
-          const origName = origEmp.name.trim().toLowerCase();
-          const target = mapped.find(
-            (m) =>
-              m.name.trim().toLowerCase() === origName ||
-              m.name.trim().toLowerCase().startsWith(`${origName} `)
-          );
-          return target?.id || null;
-        })
-        .filter((id): id is string => Boolean(id));
-      if (matchedIds.length < 2) return null;
-      return { ...rule, employeeIds: matchedIds };
-    })
-    .filter((r): r is CollectiveRule => Boolean(r));
+  const mapped: ScheduleEmployeeConfig[] = dbEmps.map((dbEmp) => ({
+    id: dbEmp.id,
+    name: dbEmp.name,
+    group: 'A' as GroupId,
+    allowedDays: [1, 2, 3, 4, 5] as Weekday[],
+    alternateDays: false,
+    shiftProfile: 'group' as ShiftProfileId,
+    workloadSource: 'policy' as WorkloadSource,
+    registeredShift: extractRegisteredShift(dbEmp),
+    note: dbEmp.role || '',
+  }));
 
   return {
     employees: mapped,
-    rules: mappedRules,
-    shift: baseTemplate.shift,
-    policy: baseTemplate.policy || DEFAULT_MTE_POLICY,
+    rules: [],
+    shift: DEFAULT_SHIFT_TEMPLATE,
+    policy: DEFAULT_MTE_POLICY,
   };
 }
 
-function loadStoredConfig(
-  companyId: string,
-  dbEmpsForCompany?: Employee[],
-  template?: StoredConfig
-): StoredConfig {
+function loadStoredConfig(companyId: string, dbEmpsForCompany?: Employee[]): StoredConfig {
   const key = getCompanyStorageKey(companyId);
   try {
     const raw = localStorage.getItem(key) || (!companyId ? localStorage.getItem(STORAGE_KEY_PREFIX) : null);
@@ -214,17 +133,15 @@ function loadStoredConfig(
   }
 
   if (companyId && dbEmpsForCompany) {
-    return buildConfigFromDbEmployees(dbEmpsForCompany, template);
+    return buildConfigFromDbEmployees(dbEmpsForCompany);
   }
 
-  return (
-    template || {
-      employees: DEFAULT_SCHEDULE_EMPLOYEES,
-      rules: DEFAULT_COLLECTIVE_RULES,
-      shift: DEFAULT_SHIFT_TEMPLATE,
-      policy: DEFAULT_MTE_POLICY,
-    }
-  );
+  return {
+    employees: DEFAULT_SCHEDULE_EMPLOYEES,
+    rules: DEFAULT_COLLECTIVE_RULES,
+    shift: DEFAULT_SHIFT_TEMPLATE,
+    policy: DEFAULT_MTE_POLICY,
+  };
 }
 
 export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedAdmin }) => {
@@ -304,8 +221,7 @@ export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedA
   // Recarrega configuração da empresa selecionada quando muda a empresa ou os dados do banco carregam
   useEffect(() => {
     if (!dbLoaded && effectiveCompanyId) return;
-    const ultramdTemplate = getUltramdMaiobaoTemplate(companies);
-    const cfg = loadStoredConfig(effectiveCompanyId, companyDbEmployees, ultramdTemplate);
+    const cfg = loadStoredConfig(effectiveCompanyId, companyDbEmployees);
     setEmployees(cfg.employees);
     setRules(cfg.rules);
     setShift(cfg.shift);
@@ -524,10 +440,9 @@ export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedA
   };
 
   const handleRestoreDefaults = () => {
-    if (confirm('Deseja restaurar todas as condições individuais, coletivas e a política MTE 2.041/2026 para o padrão original (ULTRAMD MAIOBÃO)?')) {
-      const ultramdTemplate = getUltramdMaiobaoTemplate(companies);
+    if (confirm('Deseja restaurar todas as condições individuais, coletivas e a política MTE 2.041/2026 para o padrão original?')) {
       if (effectiveCompanyId && companyDbEmployees.length > 0) {
-        const fresh = buildConfigFromDbEmployees(companyDbEmployees, ultramdTemplate);
+        const fresh = buildConfigFromDbEmployees(companyDbEmployees);
         setEmployees(fresh.employees);
         setRules(fresh.rules);
         setShift(fresh.shift);
@@ -541,35 +456,13 @@ export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedA
     }
   };
 
-  const handleApplyUltramdTemplate = () => {
-    const ultramdTemplate = getUltramdMaiobaoTemplate(companies);
-    setEmployees((prev) =>
-      prev.map((emp) => {
-        const normName = emp.name.trim().toLowerCase();
-        const preset = ultramdTemplate.employees.find((d) => {
-          const pName = d.name.trim().toLowerCase();
-          return normName === pName || normName.startsWith(`${pName} `);
-        });
-        return {
-          ...emp,
-          note: preset?.note || ULTRAMD_STANDARD_NOTE,
-          allowedDays: preset?.allowedDays || emp.allowedDays,
-          alternateDays: preset ? preset.alternateDays : emp.alternateDays,
-          shiftProfile: preset?.shiftProfile || emp.shiftProfile,
-        };
-      })
-    );
-    setPolicy(ultramdTemplate.policy || DEFAULT_MTE_POLICY);
-    alert('Padrão de Observação / Regra da ULTRAMD MAIOBÃO aplicado para esta empresa!');
-  };
-
   const handleSyncCompanyEmployees = () => {
     const source = effectiveCompanyId ? companyDbEmployees : dbEmployees;
     if (source.length === 0) {
       alert('Nenhum colaborador cadastrado no banco para esta empresa.');
       return;
     }
-    const fresh = buildConfigFromDbEmployees(source, getUltramdMaiobaoTemplate(companies));
+    const fresh = buildConfigFromDbEmployees(source);
     // Preserva regras individuais já configuradas para colaboradores existentes (por id ou nome)
     const merged = fresh.employees.map((fe) => {
       const existing = employees.find(
@@ -1406,14 +1299,6 @@ export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedA
                 )}
                 <button
                   type="button"
-                  onClick={handleApplyUltramdTemplate}
-                  className="px-3 py-1.5 rounded-lg border border-sky-200 bg-sky-50/80 text-xs font-semibold text-sky-700 hover:bg-sky-100 flex items-center gap-1.5"
-                  title="Aplicar Observação / Regra da ULTRAMD MAIOBÃO nesta empresa"
-                >
-                  <Sparkles size={13} /> Padrão ULTRAMD MAIOBÃO
-                </button>
-                <button
-                  type="button"
                   onClick={handleSyncCompanyEmployees}
                   className="px-3 py-1.5 rounded-lg border border-emerald-200 bg-emerald-50/70 text-xs font-semibold text-emerald-700 hover:bg-emerald-100 flex items-center gap-1.5"
                   title="Importar/sincronizar colaboradores cadastrados nesta empresa"
@@ -1599,7 +1484,7 @@ export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedA
                               )
                             );
                           }}
-                          placeholder={ULTRAMD_STANDARD_NOTE}
+                          placeholder="Observação / Regra"
                           className="w-full px-2 py-1 rounded-md border border-transparent hover:border-industrial-border focus:border-cyber-emerald bg-transparent focus:bg-white text-[11px] text-industrial-text outline-none"
                         />
                       </td>
