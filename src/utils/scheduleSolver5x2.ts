@@ -648,7 +648,12 @@ function isConsistentWithCollectiveRules(
         countOnDay++;
       }
     }
-    if (countOnDay > rule.maxOffSameDay) {
+    // Se houver minPresent, o máximo de folgas é limitado por employeeIds.length - minPresent
+    const effectiveMaxOff =
+      rule.minPresent !== undefined
+        ? Math.min(rule.maxOffSameDay, rule.employeeIds.length - rule.minPresent)
+        : rule.maxOffSameDay;
+    if (countOnDay > effectiveMaxOff) {
       return false;
     }
   }
@@ -1314,6 +1319,13 @@ function runScheduleAudit(
             collectiveFailureDetails.push(
               `${wLabel} (${WEEKDAY_SHORT[day]}): "${rule.name}" teve ${count} folgas simultâneas`
             );
+          }
+        }
+        // Verificar mínimo de presentes por dia útil
+        if (rule.minPresent !== undefined) {
+          const presentCount = rule.employeeIds.length - count;
+          if (presentCount < rule.minPresent) {
+            collectiveViolations++;
           }
         }
       }
