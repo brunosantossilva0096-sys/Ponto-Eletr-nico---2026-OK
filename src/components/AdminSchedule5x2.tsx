@@ -66,6 +66,7 @@ import {
   StoredSchedule5x2Config,
 } from '../utils/companyRules';
 import { toLocalDateStr } from '../utils/dateUtils';
+import { exportControleJornadaPDF } from '../utils/pdfControleJornada';
 
 const MONTH_NAMES = [
   'Janeiro',
@@ -1221,6 +1222,80 @@ export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedA
     URL.revokeObjectURL(url);
   };
 
+  const handleApplyUltralabPreset = () => {
+    if (
+      !confirm(
+        'Aplicar o padrão de horários ULTRALAB (Seg–Sex 07:00–17:24 com intervalo 12:00–13:30; Sáb 07:00–12:00 com 15min de intervalo; 1 folga útil por dia sem colisão) aos colaboradores desta escala? Você poderá editar qualquer horário depois.'
+      )
+    ) {
+      return;
+    }
+    setPolicy((prev) => ({ ...prev, phaseMode: '42h' }));
+    setEmployees((prev) =>
+      prev.map((emp) => {
+        const norm = emp.name.trim().toLowerCase();
+        const isJouberth = norm.includes('jouberth');
+        const fixedDay: Weekday | undefined = norm.includes('david')
+          ? 1
+          : norm.includes('licia') || norm.includes('lícia')
+          ? 2
+          : isJouberth
+          ? 3
+          : norm.includes('nelida') || norm.includes('nélida')
+          ? 4
+          : undefined;
+        return {
+          ...emp,
+          workloadSource: 'custom_shift',
+          customWeeklyHours: 42,
+          allowedDays: fixedDay ? [fixedDay, ...([1, 2, 3, 4, 5].filter((d) => d !== fixedDay) as Weekday[])] : emp.allowedDays,
+          customShift: {
+            workStart: '07:00',
+            breakStart: '12:00',
+            breakEnd: '13:30',
+            workEnd: '17:24',
+            saturdayStart: '07:00',
+            saturdayBreakStart: isJouberth ? '10:00' : '09:45',
+            saturdayBreakEnd: isJouberth ? '10:15' : '10:00',
+            saturdayEnd: '12:00',
+          },
+        };
+      })
+    );
+    // Garante regra de exclusão mútua entre a equipe se ainda não existir
+    if (employees.length >= 2) {
+      const ruleId = 'rule-ultralab-exclusao';
+      setRules((prev) => {
+        if (prev.some((r) => r.id === ruleId)) return prev;
+        return [
+          ...prev,
+          {
+            id: ruleId,
+            name: 'Equipe: Máximo 1 folga por dia útil (não folgam juntos)',
+            type: 'max_simultaneous',
+            employeeIds: employees.map((e) => e.id),
+            maxOffSameDay: 1,
+            enabled: true,
+          },
+        ];
+      });
+    }
+    alert('Padrão ULTRALAB aplicado! Você pode ajustar qualquer dia ou horário livremente nas abas.');
+  };
+
+  const handleExportControlePDF = () => {
+    exportControleJornadaPDF({
+      solverResult,
+      employees: activeEmployeesForMonth,
+      policy,
+      solverOptions,
+      companyName: activeCompany ? activeCompany.name : 'Geral',
+      monthLabel: MONTH_NAMES[selectedMonth],
+      year: selectedYear,
+      dailyAlertHours: 10,
+    });
+  };
+
   const handleExportPDF = () => {
     if (!solverResult.success) return;
     const companyLabel = activeCompany ? activeCompany.name : 'Todas as Empresas';
@@ -1545,11 +1620,21 @@ export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedA
                 </button>
                 <button
                   type="button"
-                  onClick={handleExportPDF}
+                  onClick={handleExportControlePDF}
                   disabled={!solverResult.success}
                   className="px-3.5 py-2 rounded-xl bg-cyber-emerald text-white text-xs font-bold hover:bg-opacity-90 transition-all flex items-center gap-1.5 disabled:opacity-40"
+                  title="Exportar Controle de Jornada individual por semana (Modelo ULTRALAB, Domingo a Sábado)"
                 >
-                  <Download size={14} /> PDF
+                  <Download size={14} /> PDF Controle de Jornada
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExportPDF}
+                  disabled={!solverResult.success}
+                  className="px-3 py-2 rounded-xl border border-industrial-border text-xs font-semibold hover:border-cyber-emerald hover:text-cyber-emerald transition-colors flex items-center gap-1.5 disabled:opacity-40"
+                  title="Exportar tabela resumo mensal"
+                >
+                  <Download size={14} /> PDF Resumo
                 </button>
               </div>
             </div>
@@ -2117,6 +2202,14 @@ export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedA
                     ))}
                   </div>
                 )}
+                <button
+                  type="button"
+                  onClick={handleApplyUltralabPreset}
+                  className="px-3 py-1.5 rounded-lg border border-blue-200 bg-blue-50 text-xs font-semibold text-blue-700 hover:bg-blue-100 flex items-center gap-1.5"
+                  title="Aplica horários 07:00–17:24 (Int. 12:00–13:30) e Sáb 07:00–12:00 (Int. 15min)"
+                >
+                  <Sparkles size={13} /> Padrão ULTRALAB
+                </button>
                 <button
                   type="button"
                   onClick={handleSyncCompanyEmployees}
@@ -2758,20 +2851,38 @@ export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedA
             >
               <div className="flex items-center justify-between flex-wrap gap-2">
                 <div className="text-xs font-bold text-industrial-text">
-                  {editingRuleId ? 'Editando Regra Coletiva' : 'Adicionar Nova Regra Coletiva'}
+                  {editingRuleId ? 'Editando Regra Coletiva' : '1. Escolha o tipo de regra (clique para selecionar):'}
                 </div>
-                <div className="flex flex-wrap gap-2">
-                  <select
-                    value={newRuleType}
-                    onChange={(e) => setNewRuleType(e.target.value as CollectiveRuleType)}
-                    className="px-2.5 py-1.5 rounded-lg border border-industrial-border bg-white text-xs font-semibold outline-none"
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {(
+                  [
+                    { id: 'max_simultaneous', label: 'Não folgam juntos', desc: 'Máx. X no mesmo dia' },
+                    { id: 'same_day', label: 'Folgam juntos', desc: 'Mesmo dia de folga' },
+                    { id: 'min_present', label: 'Mínimo presentes', desc: 'Garante equipe mínima' },
+                    { id: 'day_cap', label: 'Limite no dia', desc: 'Máx. folgas em um dia' },
+                  ] as const
+                ).map((opt) => (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => setNewRuleType(opt.id)}
+                    className={`p-2.5 rounded-xl border text-left transition-all ${
+                      newRuleType === opt.id
+                        ? 'bg-cyber-emerald text-white border-cyber-emerald shadow-sm'
+                        : 'bg-white text-industrial-text border-industrial-border hover:border-cyber-emerald'
+                    }`}
                   >
-                    <option value="max_simultaneous">Exclusão Mútua / Máx. Folgando Juntos</option>
-                    <option value="same_day">Folga Conjunta (Folgar no Mesmo Dia)</option>
-                    <option value="day_cap">Limite de Folgas em Determinado(s) Dia(s)</option>
-                    <option value="min_present">Mínimo de Funcionários Presentes por Dia</option>
-                  </select>
-                </div>
+                    <div className="text-xs font-bold">{opt.label}</div>
+                    <div
+                      className={`text-[10px] ${
+                        newRuleType === opt.id ? 'text-white/90' : 'text-industrial-muted'
+                      }`}
+                    >
+                      {opt.desc}
+                    </div>
+                  </button>
+                ))}
               </div>
 
               <div>
