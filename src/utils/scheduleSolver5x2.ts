@@ -55,6 +55,7 @@ export interface CollectiveRule {
   name: string;
   employeeIds: string[]; // Colaboradores que não podem folgar juntos (máx 1 por dia útil)
   maxOffSameDay: number; // Padrão = 1 (exclusão mútua)
+  minPresent?: number; // Mínimo de colaboradores presentes por dia útil (ex: 9 de 11)
   enabled: boolean;
 }
 
@@ -415,7 +416,12 @@ function isConsistentWithCollectiveRules(
         countOnDay++;
       }
     }
-    if (countOnDay > rule.maxOffSameDay) {
+    // Se houver minPresent, o máximo de folgas é limitado por employeeIds.length - minPresent
+    const effectiveMaxOff =
+      rule.minPresent !== undefined
+        ? Math.min(rule.maxOffSameDay, rule.employeeIds.length - rule.minPresent)
+        : rule.maxOffSameDay;
+    if (countOnDay > effectiveMaxOff) {
       return false;
     }
   }
@@ -957,6 +963,13 @@ function runScheduleAudit(
         const count = rule.employeeIds.filter((id) => wAssign.offDayByEmployee[id] === day).length;
         if (count > rule.maxOffSameDay) {
           collectiveViolations++;
+        }
+        // Verificar mínimo de presentes por dia útil
+        if (rule.minPresent !== undefined) {
+          const presentCount = rule.employeeIds.length - count;
+          if (presentCount < rule.minPresent) {
+            collectiveViolations++;
+          }
         }
       }
     }

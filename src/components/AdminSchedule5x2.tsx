@@ -223,6 +223,7 @@ export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedA
   const [newRuleName, setNewRuleName] = useState('');
   const [newRuleEmpIds, setNewRuleEmpIds] = useState<string[]>([]);
   const [newRuleMaxOff, setNewRuleMaxOff] = useState<number>(1);
+  const [newRuleMinPresent, setNewRuleMinPresent] = useState<number>(0);
 
   // Recarrega configuração da empresa selecionada quando muda a empresa ou os dados do banco carregam
   useEffect(() => {
@@ -453,12 +454,14 @@ export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedA
         name: title,
         employeeIds: newRuleEmpIds,
         maxOffSameDay: Math.max(1, newRuleMaxOff),
+        minPresent: newRuleMinPresent > 0 ? newRuleMinPresent : undefined,
         enabled: true,
       },
     ]);
     setNewRuleName('');
     setNewRuleEmpIds([]);
     setNewRuleMaxOff(1);
+    setNewRuleMinPresent(0);
   };
 
   const handleRestoreDefaults = () => {
@@ -1967,6 +1970,15 @@ export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedA
                     max={5}
                     value={newRuleMaxOff}
                     onChange={(e) => setNewRuleMaxOff(Number(e.target.value) || 1)}
+                    className="w-16 px-2 py-2 rounded-lg border border-industrial-border bg-white text-xs font-bold outline-none"
+                  />
+                  <span className="text-industrial-muted">Mín. presentes por dia:</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={20}
+                    value={newRuleMinPresent}
+                    onChange={(e) => setNewRuleMinPresent(Number(e.target.value) || 0)}
                     className="w-16 px-2 py-2 rounded-lg border border-industrial-border bg-white text-xs font-bold outline-none"
                   />
                 </div>
