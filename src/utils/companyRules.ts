@@ -3,6 +3,7 @@
 // reflitam automaticamente em todo o site sem necessidade de alterar código.
 
 import { Employee } from '../types';
+import { supabase } from '../supabaseClient';
 import {
   CollectiveRule,
   CustomShiftProfile,
@@ -53,6 +54,69 @@ export interface StoredSchedule5x2Config {
   shiftProfiles?: CustomShiftProfile[];
   manualOverrides?: ManualWeekOverrides;
   vacations?: EmployeeVacation[];
+  updatedAt?: string;
+}
+
+/**
+ * Extrai a configuração da Escala 5x2 salva na nuvem (Supabase) a partir do campo JSONB
+ * `custom_schedule._schedule_5x2_config` dos funcionários da empresa selecionada.
+ */
+export function extractCloudSchedule5x2FromEmployees(
+  emps: Employee[],
+  companyId: string
+): StoredSchedule5x2Config | null {
+  const candidates = emps.filter((e) => (!companyId ? true : e.company_id === companyId));
+  let best: StoredSchedule5x2Config | null = null;
+  let bestTime = '';
+
+  for (const emp of candidates) {
+    const cs = emp.custom_schedule as any;
+    const cfg = cs?._schedule_5x2_config;
+    if (cfg && Array.isArray(cfg.employees) && Array.isArray(cfg.rules)) {
+      const t = cfg.updatedAt || '';
+      if (!best || t >= bestTime) {
+        best = cfg as StoredSchedule5x2Config;
+        bestTime = t;
+      }
+    }
+  }
+  return best;
+}
+
+/**
+ * Salva a configuração completa da Escala 5x2 na nuvem (Supabase), armazenando-a no JSONB
+ * `custom_schedule._schedule_5x2_config` do primeiro funcionário âncora da empresa.
+ */
+export async function saveCloudSchedule5x2(
+  emps: Employee[],
+  companyId: string,
+  config: StoredSchedule5x2Config
+): Promise<{ ok: boolean; error?: string }> {
+  const candidates = emps.filter((e) => (!companyId ? true : e.company_id === companyId));
+  const anchor = candidates[0];
+  if (!anchor) {
+    return { ok: false, error: 'Nenhum funcionário cadastrado nesta empresa para vincular o salvamento na nuvem.' };
+  }
+
+  const payloadConfig: StoredSchedule5x2Config = {
+    ...config,
+    updatedAt: new Date().toISOString(),
+  };
+
+  const nextCustomSchedule = {
+    ...(anchor.custom_schedule || {}),
+    _schedule_5x2_config: payloadConfig,
+  };
+
+  const { error } = await supabase
+    .from('employees')
+    .update({ custom_schedule: nextCustomSchedule })
+    .eq('id', anchor.id);
+
+  if (error) {
+    return { ok: false, error: error.message };
+  }
+  return { ok: true };
 }
 
 export interface TimeBankAdjustment {

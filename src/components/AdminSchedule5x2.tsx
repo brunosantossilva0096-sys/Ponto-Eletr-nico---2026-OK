@@ -58,9 +58,11 @@ import {
 } from '../utils/scheduleSolver5x2';
 import {
   EmployeeVacation,
+  extractCloudSchedule5x2FromEmployees,
   getCompanyScheduleStorageKey,
   isEmployeeInactive,
   loadCompanyRules,
+  saveCloudSchedule5x2,
   saveCompanyRules,
   SCHEDULE_STORAGE_KEY_PREFIX,
   StoredSchedule5x2Config,
@@ -268,6 +270,8 @@ export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedA
   const [vacEmpId, setVacEmpId] = useState<string>(initial.employees[0]?.id || '');
   const [vacMonth, setVacMonth] = useState<number>(now.getMonth());
   const [vacYear, setVacYear] = useState<number>(now.getFullYear());
+  const [cloudSyncStatus, setCloudSyncStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [cloudReadyToSave, setCloudReadyToSave] = useState<boolean>(false);
 
   // Integração global da Escala 5x2 com as demais abas
   const [useInOtherTabs, setUseInOtherTabs] = useState<boolean>(
@@ -323,7 +327,35 @@ export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedA
 
   useEffect(() => {
     if (!dbLoaded && effectiveCompanyId) return;
-    const cfg = loadStoredConfig(effectiveCompanyId, companyDbEmployees);
+    setCloudReadyToSave(false);
+
+    // 1. Prioriza configuração salva na nuvem (Supabase) para sincronizar entre computadores
+    const cloudCfg = extractCloudSchedule5x2FromEmployees(companyDbEmployees, effectiveCompanyId);
+    let cfg: StoredSchedule5x2Config;
+    if (cloudCfg) {
+      const { groups: gList, groupConfigs: gcList } = ensureGroupsSynchronized(
+        cloudCfg.groups,
+        cloudCfg.groupConfigs,
+        cloudCfg.employees
+      );
+      cfg = {
+        ...cloudCfg,
+        policy: { ...DEFAULT_MTE_POLICY, ...(cloudCfg.policy || {}) },
+        groups: gList,
+        groupConfigs: gcList,
+        shiftProfiles:
+          Array.isArray(cloudCfg.shiftProfiles) && cloudCfg.shiftProfiles.length > 0
+            ? cloudCfg.shiftProfiles
+            : DEFAULT_SHIFT_PROFILES,
+        manualOverrides: cloudCfg.manualOverrides || {},
+        vacations: Array.isArray(cloudCfg.vacations) ? cloudCfg.vacations : [],
+      };
+      setCloudSyncStatus('saved');
+    } else {
+      cfg = loadStoredConfig(effectiveCompanyId, companyDbEmployees);
+      setCloudSyncStatus('idle');
+    }
+
     setEmployees(cfg.employees);
     setRules(cfg.rules);
     setShift(cfg.shift);
@@ -339,26 +371,40 @@ export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedA
     setNewRuleEmpIds([]);
     setEditingRuleId(null);
     setUseInOtherTabs(loadCompanyRules(effectiveCompanyId).useSchedule5x2InReportsAndTimeBank);
+
+    // Libera o salvamento automático na nuvem após carregar o estado inicial da empresa
+    const t = setTimeout(() => setCloudReadyToSave(true), 250);
+    return () => clearTimeout(t);
   }, [effectiveCompanyId, dbLoaded]);
 
   useEffect(() => {
+    const toStore: StoredSchedule5x2Config = {
+      employees,
+      rules,
+      shift,
+      policy,
+      groups,
+      groupConfigs,
+      shiftProfiles,
+      manualOverrides,
+      vacations,
+    };
     try {
-      const toStore: StoredSchedule5x2Config = {
-        employees,
-        rules,
-        shift,
-        policy,
-        groups,
-        groupConfigs,
-        shiftProfiles,
-        manualOverrides,
-        vacations,
-      };
       localStorage.setItem(getCompanyScheduleStorageKey(effectiveCompanyId), JSON.stringify(toStore));
     } catch {
       // Ignora erro de quota
     }
-  }, [effectiveCompanyId, employees, rules, shift, policy, groups, groupConfigs, shiftProfiles, manualOverrides, vacations]);
+
+    if (!dbLoaded || !cloudReadyToSave || companyDbEmployees.length === 0) return;
+
+    setCloudSyncStatus('saving');
+    const timer = setTimeout(async () => {
+      const res = await saveCloudSchedule5x2(companyDbEmployees, effectiveCompanyId, toStore);
+      setCloudSyncStatus(res.ok ? 'saved' : 'error');
+    }, 800);
+
+    return () => clearTimeout(timer);
+  }, [effectiveCompanyId, employees, rules, shift, policy, groups, groupConfigs, shiftProfiles, manualOverrides, vacations, dbLoaded, cloudReadyToSave]);
 
   const handleToggleUseInOtherTabs = (checked: boolean) => {
     setUseInOtherTabs(checked);
@@ -1418,6 +1464,25 @@ export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedA
                   <AlertTriangle size={13} /> Revisar Alertas na Auditoria
                 </>
               )}
+            </span>
+            <span
+              className={`text-[11px] font-semibold px-2.5 py-1 rounded-full border ${
+                cloudSyncStatus === 'saved'
+                  ? 'bg-sky-50 text-sky-700 border-sky-200'
+                  : cloudSyncStatus === 'saving'
+                  ? 'bg-amber-50 text-amber-700 border-amber-200'
+                  : cloudSyncStatus === 'error'
+                  ? 'bg-red-50 text-red-700 border-red-200'
+                  : 'bg-slate-50 text-slate-600 border-slate-200'
+              }`}
+            >
+              {cloudSyncStatus === 'saved'
+                ? '☁ Salvo na nuvem (Supabase)'
+                : cloudSyncStatus === 'saving'
+                ? '☁ Salvando na nuvem...'
+                : cloudSyncStatus === 'error'
+                ? '⚠ Erro ao salvar na nuvem'
+                : '☁ Sincronização na nuvem ativa'}
             </span>
           </div>
           <p className="text-xs text-industrial-muted mt-1">
