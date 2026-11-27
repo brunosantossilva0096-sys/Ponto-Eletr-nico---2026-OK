@@ -585,7 +585,11 @@ export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedA
             (currentResolved.breakEnd !== '-' ? currentResolved.breakEnd : '13:00'),
           workEnd: item.customShift?.workEnd || currentResolved.workEnd,
           saturdayStart: item.customShift?.saturdayStart || currentResolved.saturdayStart,
+          saturdayBreakStart: item.customShift?.saturdayBreakStart,
+          saturdayBreakEnd: item.customShift?.saturdayBreakEnd,
           saturdayEnd: item.customShift?.saturdayEnd || currentResolved.saturdayEnd,
+          saturdayOffBreakStart: item.customShift?.saturdayOffBreakStart,
+          saturdayOffBreakEnd: item.customShift?.saturdayOffBreakEnd,
           [field]: value,
         };
         const computed = computeShiftLabels(baseCustom);
@@ -1306,6 +1310,8 @@ export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedA
             saturdayBreakStart: isJouberth ? '10:00' : '09:45',
             saturdayBreakEnd: isJouberth ? '10:15' : '10:00',
             saturdayEnd: '12:00',
+            saturdayOffBreakStart: '12:00',
+            saturdayOffBreakEnd: '14:00',
           },
         };
       })

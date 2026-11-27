@@ -50,6 +50,8 @@ export interface ShiftTemplate {
   saturdayBreakStart?: string;
   saturdayBreakEnd?: string;
   saturdayEnd: string;
+  saturdayOffBreakStart?: string; // Ex: ULTRALAB -> 12:00 (2h de almoço quando folga no Sábado)
+  saturdayOffBreakEnd?: string;   // Ex: ULTRALAB -> 14:00
   dailyHoursLabel: string;
   saturdayHoursLabel: string;
   weeklyHours: number;
@@ -954,10 +956,15 @@ export function resolveShiftForEmployeeInWeek(
   // 1. Horário individual explícito (custom_shift ou custom com batidas preenchidas)
   const cs = emp.customShift;
   if (emp.workloadSource === 'custom_shift' && cs?.workStart && cs?.workEnd) {
+    const isSatOff = offDay === 6 || emp.offMode === 'mon_fri';
+    const effBreakStart =
+      isSatOff && cs.saturdayOffBreakStart ? cs.saturdayOffBreakStart : cs.breakStart || '12:00';
+    const effBreakEnd =
+      isSatOff && cs.saturdayOffBreakEnd ? cs.saturdayOffBreakEnd : cs.breakEnd || '13:00';
     return computeShiftLabels({
       workStart: cs.workStart,
-      breakStart: cs.breakStart || '12:00',
-      breakEnd: cs.breakEnd || '13:00',
+      breakStart: effBreakStart,
+      breakEnd: effBreakEnd,
       workEnd: cs.workEnd,
       saturdayStart: cs.saturdayStart || '07:00',
       saturdayBreakStart: cs.saturdayBreakStart,
