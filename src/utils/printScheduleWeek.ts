@@ -1,5 +1,6 @@
 import {
   ALL_WEEKDAYS,
+  getDayCoverageTag,
   MtePolicyConfig,
   resolveShiftForEmployeeInWeek,
   ScheduleEmployeeConfig,
@@ -58,11 +59,18 @@ export function printScheduleWeekHtml(params: {
         if (offDay === d) {
           return `<td class="folga">FOLGA</td>`;
         }
+        const tag = getDayCoverageTag(emp, d, assignment, employees);
+        if (tag) {
+          return `<td class="cohab"><div>${s.workStart}–${s.workEnd}</div><div class="cohab-tag">${tag.label}</div></td>`;
+        }
         return `<td><div>${s.workStart}–${s.workEnd}</div><div class="sub">Int. ${s.breakStart}–${s.breakEnd}</div></td>`;
       }).join('');
 
+      const satTag = !satOff ? getDayCoverageTag(emp, 6, assignment, employees) : null;
       const satCell = satOff
         ? `<td class="folga">FOLGA</td>`
+        : satTag
+        ? `<td class="cohab"><div>${s.saturdayStart}–${s.saturdayEnd}</div><div class="cohab-tag">${satTag.label}</div></td>`
         : `<td><div>${s.saturdayStart}–${s.saturdayEnd}</div>${
             s.saturdayBreakStart && s.saturdayBreakEnd
               ? `<div class="sub">Int. ${s.saturdayBreakStart}–${s.saturdayBreakEnd}</div>`
@@ -106,6 +114,8 @@ export function printScheduleWeekHtml(params: {
     td.name { text-align: left; font-weight: bold; }
     td.folga { background: #d1fae5; color: #065f46; font-weight: bold; }
     td.dsr { background: #fef3c7; color: #92400e; font-weight: bold; }
+    td.cohab { background: #fee2e2; color: #b91c1c; font-weight: bold; }
+    .cohab-tag { font-size: 10px; font-weight: 900; color: #991b1b; letter-spacing: 0.5px; margin-top: 2px; }
     .sub { font-size: 10px; opacity: 0.8; }
     .footer { margin-top: 12px; font-size: 11px; color: #64748b; display: flex; justify-content: space-between; }
     @media print { .no-print { display: none; } body { padding: 0; } }

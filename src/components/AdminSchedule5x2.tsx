@@ -40,6 +40,7 @@ import {
   DEFAULT_SHIFT_TEMPLATE,
   EmployeeOffMode,
   generateAndAuditSchedule,
+  getDayCoverageTag,
   GroupConfig,
   GroupId,
   ManualWeekOverrides,
@@ -2135,6 +2136,9 @@ export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedA
                                   {ALL_WEEKDAYS.map((d) => {
                                     const isOff = offDay === d;
                                     const iso = week.datesByDow[d];
+                                    const covTag = !isOff
+                                      ? getDayCoverageTag(emp, d, assign, activeEmployeesForMonth)
+                                      : null;
                                     return (
                                       <td
                                         key={d}
@@ -2161,6 +2165,13 @@ export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedA
                                             }`}
                                           >
                                             {isManual && <Lock size={10} />} FOLGA
+                                          </span>
+                                        ) : covTag ? (
+                                          <span className="inline-flex flex-col items-center px-2 py-1 rounded-lg bg-red-100 text-red-700 border border-red-300 font-bold text-[11px] leading-tight">
+                                            <span>{empShift.workStart}–{empShift.workEnd}</span>
+                                            <span className="text-[9px] font-black tracking-wider text-red-800">
+                                              {covTag.label}
+                                            </span>
                                           </span>
                                         ) : (
                                           <span className="inline-block px-2 py-1 rounded-lg bg-slate-100 hover:bg-emerald-50 text-slate-600 hover:text-emerald-800 font-medium text-[11px] transition-colors">
@@ -2191,11 +2202,21 @@ export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedA
                                       >
                                         {isManual && offDay === 6 && <Lock size={10} />} FOLGA
                                       </span>
-                                    ) : (
-                                      <span className="inline-block px-2 py-1 rounded-lg bg-slate-100 hover:bg-emerald-50 text-slate-600 hover:text-emerald-800 font-medium text-[11px] transition-colors">
-                                        {empShift.saturdayStart}–{empShift.saturdayEnd}
-                                      </span>
-                                    )}
+                                    ) : (() => {
+                                      const satTag = getDayCoverageTag(emp, 6, assign, activeEmployeesForMonth);
+                                      return satTag ? (
+                                        <span className="inline-flex flex-col items-center px-2 py-1 rounded-lg bg-red-100 text-red-700 border border-red-300 font-bold text-[11px] leading-tight">
+                                          <span>{empShift.saturdayStart}–{empShift.saturdayEnd}</span>
+                                          <span className="text-[9px] font-black tracking-wider text-red-800">
+                                            {satTag.label}
+                                          </span>
+                                        </span>
+                                      ) : (
+                                        <span className="inline-block px-2 py-1 rounded-lg bg-slate-100 hover:bg-emerald-50 text-slate-600 hover:text-emerald-800 font-medium text-[11px] transition-colors">
+                                          {empShift.saturdayStart}–{empShift.saturdayEnd}
+                                        </span>
+                                      );
+                                    })()}
                                   </td>
                                   <td
                                     className={`py-2 px-1.5 text-center ${

@@ -1,5 +1,6 @@
 import jsPDF from 'jspdf';
 import {
+  getDayCoverageTag,
   MtePolicyConfig,
   parseMinutes,
   resolveShiftForEmployeeInWeek,
@@ -182,15 +183,21 @@ export function exportControleJornadaPDF({
         const isAlert = workedMin > dailyAlertHours * 60;
         if (isAlert) alertDays++;
 
+        const covTag =
+          dow >= 1 && dow <= 6
+            ? getDayCoverageTag(emp, dow as Weekday, assign, employees)
+            : null;
+
         return {
           dowLabel: DOW_LABELS[dow],
           dateBr: fmtBrDate(iso),
           isOff: false,
+          covTag: covTag?.label || null,
           entrada,
           iniAlmoco: iniAlmoco || '-',
           fimAlmoco: fimAlmoco || '-',
           saida,
-          escala: 'Trabalho',
+          escala: covTag ? `COHAB` : 'Trabalho',
           intervalo: fmtHHMM(breakMin),
           trabalhadas: fmtHHMM(workedMin),
           acumulado: fmtHHMM(totalWorkedMin),
@@ -334,6 +341,8 @@ export function exportControleJornadaPDF({
           if (cIdx >= 1 && cIdx <= 5) {
             if (r.isOff) {
               doc.setFillColor(246, 237, 217); // bege suave (Folga)
+            } else if ((r as any).covTag) {
+              doc.setFillColor(254, 226, 226); // vermelho suave (COHAB)
             } else {
               doc.setFillColor(227, 240, 229); // verde suave (Trabalho)
             }
@@ -342,7 +351,11 @@ export function exportControleJornadaPDF({
           doc.setDrawColor(215, 222, 230);
           doc.rect(tx, y, w, rowH);
 
-          doc.setTextColor(30, 41, 59);
+          if ((r as any).covTag && cIdx >= 1 && cIdx <= 5) {
+            doc.setTextColor(185, 28, 28);
+          } else {
+            doc.setTextColor(30, 41, 59);
+          }
           if (cIdx === 0) {
             doc.setFont('helvetica', 'bold');
             doc.text(r.dowLabel, tx + w / 2, y + 2.6, { align: 'center' });

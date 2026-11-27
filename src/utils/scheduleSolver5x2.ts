@@ -539,6 +539,41 @@ export function formatHoursMinutes(totalMinutes: number): string {
   return `${String(h).padStart(2, '0')}h${String(m).padStart(2, '0')}min`;
 }
 
+function normalizeTextSimple(s: string): string {
+  return (s || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
+/**
+ * Retorna a etiqueta de destaque (ex.: 'COHAB' em vermelho) para um dia de trabalho específico.
+ * Regra ULTRALAB: sempre que Nélida estiver de folga no dia, o dia de trabalho de Jouberth
+ * fica sinalizado em vermelho com "COHAB" abaixo do horário.
+ */
+export function getDayCoverageTag(
+  emp: ScheduleEmployeeConfig,
+  day: Weekday,
+  assignment: WeekAssignment,
+  allEmployees: ScheduleEmployeeConfig[]
+): { label: string; color: 'red' } | null {
+  const empNorm = normalizeTextSimple(emp.name);
+  if (!empNorm.includes('jouberth')) return null;
+
+  const empOff = assignment.offDayByEmployee[emp.id];
+  if (empOff === day) return null; // Jouberth não está trabalhando neste dia
+
+  const nelida = allEmployees.find((e) => normalizeTextSimple(e.name).includes('nelida'));
+  if (!nelida) return null;
+
+  const nelidaOff = assignment.offDayByEmployee[nelida.id];
+  if (nelidaOff === day) {
+    return { label: 'COHAB', color: 'red' };
+  }
+  return null;
+}
+
 function addMinutesToHHMM(hhmm: string, mins: number): string {
   const total = Math.max(0, parseMinutes(hhmm) + Math.round(mins));
   const h = Math.floor(total / 60) % 24;
