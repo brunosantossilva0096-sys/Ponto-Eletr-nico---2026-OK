@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../supabaseClient';
 import { TimeLog, Employee, Holiday, Absence } from '../types';
-import { FileText, ArrowLeft, Clock, Edit2, Trash2, X, Calculator } from 'lucide-react';
+import { FileText, ArrowLeft, Clock, Edit2, Trash2, X, Calculator, Calendar, Printer } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import { calculateTimeBank, formatHours, formatHoursNeutral } from '../utils/timeBank';
 import { generateAbsences } from '../utils/faltas';
@@ -12,6 +12,11 @@ import {
   toLocalDateStr,
   toLocalTimeStr,
 } from '../utils/dateUtils';
+import {
+  extractCloudSchedule5x2FromEmployees,
+  getCompanyScheduleStorageKey,
+  resolveEmployeeDayFrom5x2,
+} from '../utils/companyRules';
 
 export const EmployeeReports = ({
   employee,
@@ -27,6 +32,7 @@ export const EmployeeReports = ({
   const [endDate, setEndDate] = useState(() => toLocalDateStr());
   const [holidays, setHolidays] = useState<Holiday[]>([]);
   const [absences, setAbsences] = useState<Absence[]>([]);
+  const [scheduleSyncedTick, setScheduleSyncedTick] = useState(0);
 
   const fetchLogs = async () => {
     let allLogs: TimeLog[] = [];
@@ -69,6 +75,22 @@ export const EmployeeReports = ({
       .select('*')
       .eq('employee_id', employee.id);
     if (aData) setAbsences(aData);
+
+    // Sincroniza a Escala 5x2 da nuvem (Supabase) para a empresa do funcionário
+    try {
+      let q = supabase.from('employees').select('*');
+      if (employee.company_id) q = q.eq('company_id', employee.company_id);
+      const { data: compEmps } = await q;
+      if (compEmps && compEmps.length > 0) {
+        const cloudCfg = extractCloudSchedule5x2FromEmployees(compEmps as Employee[], employee.company_id || '');
+        if (cloudCfg) {
+          localStorage.setItem(getCompanyScheduleStorageKey(employee.company_id || ''), JSON.stringify(cloudCfg));
+          setScheduleSyncedTick((t) => t + 1);
+        }
+      }
+    } catch {
+      // usa cache local se offline
+    }
   };
 
   useEffect(() => {
@@ -89,6 +111,76 @@ export const EmployeeReports = ({
   );
 
   const timeBankReport = calculateTimeBank(employee, logs, startDate, endDate, holidays, absences);
+
+  // Calcula a Escala 5x2 vigente da semana atual (Dom a Sáb) para exibir e imprimir no espelho
+  const currentWeekSchedule = useMemo(() => {
+    const today = new Date();
+    const dow = today.getDay(); // 0=Dom..6=Sab
+    const sunday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - dow);
+    const shortNames = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+    const days = Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(sunday.getFullYear(), sunday.getMonth(), sunday.getDate() + i);
+      const iso = toLocalDateStr(d);
+      const res = resolveEmployeeDayFrom5x2(employee, iso, true);
+      return {
+        dow: i,
+        short: shortNames[i],
+        iso,
+        dateShort: `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`,
+        res,
+      };
+    });
+    const has5x2 = days.some((d) => d.res && d.res.foundIn5x2);
+    return { has5x2, days, label: `${days[0].dateShort} a ${days[6].dateShort}` };
+  }, [employee, scheduleSyncedTick]);
+
+  const handlePrintMyWeekSchedule = () => {
+    const win = window.open('', '_blank', 'width=900,height=520');
+    if (!win) {
+      alert('Permita pop-ups no navegador para abrir a tela de impressão.');
+      return;
+    }
+    const cellsHtml = currentWeekSchedule.days
+      .map((d) => {
+        const isSun = d.dow === 0;
+        if (isSun) {
+          return `<td class="dsr">DSR</td>`;
+        }
+        if (d.res && !d.res.isWorkDay) {
+          return `<td class="folga">FOLGA</td>`;
+        }
+        if (d.res && d.res.isWorkDay) {
+          return `<td><div><strong>${d.res.workStart}–${d.res.workEnd}</strong></div>${
+            d.res.breakStart && d.res.breakEnd ? `<div class="sub">Int. ${d.res.breakStart}–${d.res.breakEnd}</div>` : ''
+          }</td>`;
+        }
+        return `<td>-</td>`;
+      })
+      .join('');
+    const headersHtml = currentWeekSchedule.days
+      .map((d) => `<th>${d.short}<br/><span class="sub">${d.dateShort}</span></th>`)
+      .join('');
+    win.document.open();
+    win.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"/><title>Minha Escala 5x2 — ${employee.name}</title>
+      <style>
+        @page { size: landscape; margin: 12mm; }
+        body { font-family: Arial, sans-serif; color: #1e293b; padding: 16px; }
+        h1 { font-size: 18px; margin: 0 0 4px 0; }
+        .meta { font-size: 12px; color: #475569; margin-bottom: 14px; }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        th, td { border: 1px solid #cbd5e1; padding: 10px 6px; text-align: center; }
+        th { background: #1e3a5f; color: #fff; }
+        td.folga { background: #d1fae5; color: #065f46; font-weight: bold; }
+        td.dsr { background: #fef3c7; color: #92400e; font-weight: bold; }
+        .sub { font-size: 10px; opacity: 0.8; }
+      </style></head><body>
+      <h1>Escala 5x2 Vigente — Semana ${currentWeekSchedule.label}</h1>
+      <div class="meta"><strong>Colaborador:</strong> ${employee.name} • <strong>Empresa:</strong> ${employee.companies?.name || '-'}</div>
+      <table><thead><tr>${headersHtml}</tr></thead><tbody><tr>${cellsHtml}</tr></tbody></table>
+      <script>window.onload=function(){setTimeout(function(){window.print();},250);};</script>
+      </body></html>`);
+    win.document.close();
+  };
 
   const [editingLog, setEditingLog] = useState<TimeLog | null>(null);
   const [editDate, setEditDate] = useState('');
@@ -286,6 +378,56 @@ export const EmployeeReports = ({
             <strong>CPF:</strong> {employee.cpf}
           </p>
         </div>
+
+        {/* Escala 5x2 Vigente da Semana */}
+        {currentWeekSchedule.has5x2 && (
+          <div className="mb-4 p-3.5 bg-emerald-50/50 rounded-2xl border border-emerald-200 space-y-2.5">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <div className="flex items-center gap-2 text-xs font-bold text-emerald-900">
+                <Calendar size={15} className="text-cyber-emerald" />
+                <span>Escala 5x2 Vigente — Semana {currentWeekSchedule.label}</span>
+              </div>
+              <button
+                type="button"
+                onClick={handlePrintMyWeekSchedule}
+                className="px-2.5 py-1 rounded-lg bg-white border border-emerald-300 text-emerald-800 hover:bg-emerald-100 text-[11px] font-bold flex items-center gap-1 transition-colors"
+              >
+                <Printer size={12} /> Imprimir Escala
+              </button>
+            </div>
+            <div className="grid grid-cols-7 gap-1.5 text-center">
+              {currentWeekSchedule.days.map((d) => {
+                const isSun = d.dow === 0;
+                const isOff = !isSun && d.res && !d.res.isWorkDay;
+                return (
+                  <div
+                    key={d.iso}
+                    className={`p-2 rounded-xl border text-[11px] ${
+                      isSun
+                        ? 'bg-amber-50 border-amber-200 text-amber-800'
+                        : isOff
+                        ? 'bg-emerald-100 border-emerald-300 text-emerald-900'
+                        : 'bg-white border-industrial-border text-industrial-text'
+                    }`}
+                  >
+                    <div className="font-bold">
+                      {d.short} <span className="font-normal text-[10px] opacity-75">{d.dateShort}</span>
+                    </div>
+                    <div className="mt-1 font-bold text-[10px]">
+                      {isSun
+                        ? 'DSR'
+                        : isOff
+                        ? 'FOLGA'
+                        : d.res
+                        ? `${d.res.workStart}–${d.res.workEnd}`
+                        : '-'}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         <div className="grid grid-cols-2 gap-3 mb-4">
           <div>

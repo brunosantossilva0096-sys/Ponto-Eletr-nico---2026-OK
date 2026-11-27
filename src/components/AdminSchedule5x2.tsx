@@ -22,6 +22,7 @@ import {
   Save,
   Sliders,
   Unlock,
+  Printer,
 } from 'lucide-react';
 import {
   ALL_OFF_DAYS,
@@ -69,6 +70,7 @@ import {
 } from '../utils/companyRules';
 import { toLocalDateStr } from '../utils/dateUtils';
 import { exportControleJornadaPDF } from '../utils/pdfControleJornada';
+import { printScheduleWeekHtml } from '../utils/printScheduleWeek';
 
 const MONTH_NAMES = [
   'Janeiro',
@@ -1329,6 +1331,26 @@ export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedA
     alert('Padrão ULTRALAB aplicado! Você pode ajustar qualquer dia ou horário livremente nas abas.');
   };
 
+  const handlePrintWeek = (wIdx: number) => {
+    if (!solverResult.success || !solverResult.weeks[wIdx]) return;
+    printScheduleWeekHtml({
+      week: solverResult.weeks[wIdx],
+      assignment: solverResult.assignments[wIdx],
+      employees: activeEmployeesForMonth,
+      policy,
+      solverOptions,
+      companyName: activeCompany ? activeCompany.name : 'Todas as Empresas',
+      companyCnpj: activeCompany?.cnpj,
+    });
+  };
+
+  const handlePrintCurrentWeek = () => {
+    if (!solverResult.success || solverResult.weeks.length === 0) return;
+    const todayStr = toLocalDateStr();
+    const idx = solverResult.weeks.findIndex((w) => Object.values(w.datesByDow).includes(todayStr));
+    handlePrintWeek(idx >= 0 ? idx : 0);
+  };
+
   const handleExportControlePDF = () => {
     exportControleJornadaPDF({
       solverResult,
@@ -1685,6 +1707,15 @@ export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedA
                 </button>
                 <button
                   type="button"
+                  onClick={handlePrintCurrentWeek}
+                  disabled={!solverResult.success}
+                  className="px-3.5 py-2 rounded-xl bg-industrial-text text-white text-xs font-bold hover:bg-opacity-90 transition-all flex items-center gap-1.5 disabled:opacity-40"
+                  title="Imprimir a escala 5x2 da semana vigente"
+                >
+                  <Printer size={14} /> Imprimir Semana Vigente
+                </button>
+                <button
+                  type="button"
                   onClick={handleExportControlePDF}
                   disabled={!solverResult.success}
                   className="px-3.5 py-2 rounded-xl bg-cyber-emerald text-white text-xs font-bold hover:bg-opacity-90 transition-all flex items-center gap-1.5 disabled:opacity-40"
@@ -1910,15 +1941,25 @@ export const AdminSchedule5x2: React.FC<{ loggedAdmin: AdminUser }> = ({ loggedA
                               : `Vigência MTE: ${assign.legalMaxWeeklyHours}h/sem`}
                           </span>
                         </div>
-                        <span className="text-[11px] font-medium text-industrial-muted">
-                          Equipe ativa: {activeEmployeesForMonth.length} colaboradores
-                          {vacationEmployeesForMonth.length > 0 && (
-                            <span className="ml-1.5 text-amber-700 font-semibold">
-                              • De férias (excluídos): {vacationEmployeesForMonth.map((e) => e.name).join(', ')}
-                            </span>
-                          )}
-                          {activeCompany ? ` • ${activeCompany.name}` : ''}
-                        </span>
+                        <div className="flex items-center gap-2.5 flex-wrap">
+                          <span className="text-[11px] font-medium text-industrial-muted">
+                            Equipe ativa: {activeEmployeesForMonth.length} colaboradores
+                            {vacationEmployeesForMonth.length > 0 && (
+                              <span className="ml-1.5 text-amber-700 font-semibold">
+                                • De férias (excluídos): {vacationEmployeesForMonth.map((e) => e.name).join(', ')}
+                              </span>
+                            )}
+                            {activeCompany ? ` • ${activeCompany.name}` : ''}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handlePrintWeek(wIdx)}
+                            className="px-2.5 py-1 rounded-lg bg-white border border-industrial-border text-[11px] font-bold text-industrial-text hover:border-cyber-emerald hover:text-cyber-emerald flex items-center gap-1 transition-colors"
+                            title="Imprimir esta semana"
+                          >
+                            <Printer size={12} /> Imprimir Semana
+                          </button>
+                        </div>
                       </div>
 
                       <div className="overflow-x-auto">
